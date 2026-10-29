@@ -120,6 +120,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Backend TypeScript source lives in backend/lib and must remain versioned.
+!backend/lib/
+!backend/lib/iot.ts
 lib64/
 parts/
 sdist/

@@ -58,12 +58,16 @@ export function parseAppRecord(app: AppName, kind: AppKind, input: unknown) {
     if (!address || !seller) throw new Error("Property address and seller are required");
     const closesOn = date(data.closesOn);
     if (Date.parse(`${closesOn}T23:59:59Z`) < Date.now()) throw new Error("Closing date must be in the future");
+    const valuation = amount(data.valuation);
     return { title: address, payload: { address, seller, description: field(data, "description", 1500),
-      reservePrice: amount(data.reservePrice), valuation: amount(data.valuation), closesOn,
-      authorityNotes: field(data, "authorityNotes", 1000), titleNotes: field(data, "titleNotes", 1000) } };
+      reservePrice: amount(data.reservePrice), valuation, listingFee: Math.round(valuation * 0.0025 * 100) / 100, closesOn,
+      authorityNotes: field(data, "authorityNotes", 1000), titleNotes: field(data, "titleNotes", 1000), documents: [] } };
   }
   if (kind === "bidder") return { title: "Bidder verification request", payload: { note: field(data, "note", 500) } };
-  if (kind === "bid") return { title: "Simulated bid", payload: { listingId: field(data, "listingId", 100), bidAmount: amount(data.bidAmount) } };
+  if (kind === "bid") {
+    const bidAmount = amount(data.bidAmount);
+    return { title: "Simulated bid", payload: { listingId: field(data, "listingId", 100), bidAmount, depositPreview: Math.round(bidAmount * 0.25 * 100) / 100 } };
+  }
   if (kind === "instrument") {
     const symbol = field(data, "symbol", 20).toUpperCase();
     const exchange = field(data, "exchange", 20).toUpperCase();

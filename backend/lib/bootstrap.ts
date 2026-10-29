@@ -15,6 +15,12 @@ async function migrate() {
   const table = (name: string) => `\`${env.projectId}.${env.dataset}.${name}\``;
   await queryBigQuery(`CREATE TABLE IF NOT EXISTS ${table("users")}
     (id STRING, email STRING, password_hash STRING, name STRING, role STRING, org_id STRING, created_at TIMESTAMP)`);
+  await queryBigQuery(`CREATE TABLE IF NOT EXISTS ${table("app_records")}
+    (id STRING, org_id STRING, owner_id STRING, app STRING, kind STRING, status STRING, title STRING,
+     payload_json STRING, created_at TIMESTAMP, updated_at TIMESTAMP)`);
+  await queryBigQuery(`CREATE TABLE IF NOT EXISTS ${table("auction_audit_logs")}
+    (id STRING, org_id STRING, record_id STRING, record_kind STRING, action STRING, from_status STRING,
+     to_status STRING, actor_id STRING, actor_email STRING, subject_user_id STRING, created_at TIMESTAMP)`);
   await queryBigQuery(`ALTER TABLE ${table("users")} ADD COLUMN IF NOT EXISTS is_test_user BOOL`);
   await queryBigQuery(`ALTER TABLE ${table("users")} ADD COLUMN IF NOT EXISTS active BOOL`);
   await queryBigQuery(`CREATE TABLE IF NOT EXISTS ${table("approval_gates")}

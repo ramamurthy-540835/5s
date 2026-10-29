@@ -1,16 +1,15 @@
 import Link from "next/link";
-import { Shield, GitBranch, BookOpen, Code2, Building2, FlaskConical, CheckSquare, BarChart, Brain, GraduationCap, BookMarked, ReceiptIndianRupee } from "lucide-react";
+import { Shield, GitBranch, BookOpen, Code2, Building2, FlaskConical, CheckSquare, BarChart, Brain, ReceiptIndianRupee } from "lucide-react";
 import TopNav from "@/components/TopNav";
 
 const PERSONAS = [
-  { name: "Developer",         icon: Code2,         slug: "Developer" },
-  { name: "Architect",         icon: Building2,      slug: "Architect" },
-  { name: "Tester",            icon: FlaskConical,   slug: "Tester" },
-  { name: "QA",                icon: CheckSquare,    slug: "QA" },
-  { name: "Business Analyst",  icon: BarChart,       slug: "BusinessAnalyst" },
-  { name: "AI Engineer",       icon: Brain,          slug: "AIEngineer" },
-  { name: "Mentor",            icon: GraduationCap,  slug: "Mentor" },
-  { name: "Student",           icon: BookMarked,     slug: "Student" },
+  { name: "AI Engineer",       icon: Brain,              slug: "AI Engineer" },
+  { name: "Architect",         icon: Building2,          slug: "Architect" },
+  { name: "Business Analyst",  icon: BarChart,           slug: "Business Analyst" },
+  { name: "Developer",         icon: Code2,              slug: "Developer" },
+  { name: "Project Manager",   icon: CheckSquare,        slug: "Project Manager" },
+  { name: "Tester",            icon: FlaskConical,       slug: "Tester" },
+  { name: "Sales",             icon: ReceiptIndianRupee, slug: "Sales" },
 ];
 
 const CAPABILITIES = [
@@ -34,7 +33,7 @@ const CAPABILITIES = [
 const STATS = [
   { value: "3", label: "AI Providers" },
   { value: "25", label: "Prompt Types" },
-  { value: "8", label: "Personas" },
+  { value: "7", label: "Personas" },
   { value: "OSSA", label: "Governed" },
 ];
 
@@ -53,9 +52,6 @@ export default function Home() {
 
             {/* Left: copy + buttons */}
             <div className="flex-1 space-y-5">
-              <span className="inline-block rounded-full border border-[#4589ff] bg-[#edf5ff] px-3 py-1 text-xs font-medium text-[#0f62fe]">
-                Mastech Digital · Enterprise AI
-              </span>
               <h1 className="text-[36px] font-semibold leading-tight text-[#161616]">
                 PRISM — Governed Multi-Model<br />AI Engineering Platform
               </h1>

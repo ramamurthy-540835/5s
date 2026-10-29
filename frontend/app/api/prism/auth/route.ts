@@ -12,12 +12,20 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const { email, password } = await req.json();
   const adminEmail = process.env.PRISM_ADMIN_EMAIL || "ai@nelture.ai";
-  const secret = process.env.DEMO_ADMIN_PASSWORD;
+  const adminPassword = process.env.DEMO_ADMIN_PASSWORD;
+  const propertyAuctionsEmail = process.env.PROPERTY_AUCTIONS_EMAIL;
+  const propertyAuctionsPassword = process.env.PROPERTY_AUCTIONS_PASSWORD;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const suppliedPassword = String(password || "");
   let user;
-  if (secret && normalizedEmail === adminEmail.toLowerCase() && suppliedPassword === secret) {
+  if (adminPassword && normalizedEmail === adminEmail.toLowerCase() && suppliedPassword === adminPassword) {
     user = { id: adminEmail, email: adminEmail, role: "admin" as const, orgId: "naturelabs" };
+  } else if (
+    propertyAuctionsEmail && propertyAuctionsPassword &&
+    normalizedEmail === propertyAuctionsEmail.trim().toLowerCase() &&
+    suppliedPassword === propertyAuctionsPassword
+  ) {
+    user = { id: propertyAuctionsEmail, email: propertyAuctionsEmail, role: "member" as const, orgId: "property-auctions" };
   } else if (normalizedEmail && suppliedPassword) {
     await ensureSeeded();
     const rows = await queryBigQuery<{ id: string; email: string; role: string; org_id: string; password_hash: string }>(

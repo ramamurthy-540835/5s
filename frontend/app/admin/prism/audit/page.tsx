@@ -13,7 +13,7 @@ export default function AuditPage() {
   const load = (uid?: string) => {
     setLoading(true);
     setError("");
-    const url = uid ? `/api/prism/usage/user-details?userId=${encodeURIComponent(uid)}` : "/api/prism/usage/user-details";
+    const url = uid ? `/api/prism/audit?userId=${encodeURIComponent(uid)}` : "/api/prism/audit";
     fetch(url)
       .then((r) => r.json())
       .then((d) => setRows(Array.isArray(d) ? d : []))
@@ -36,7 +36,7 @@ export default function AuditPage() {
         <main className="flex-1 bg-[#f8faff] p-6 space-y-4">
           <div className="ibm-panel p-5">
             <h1 className="text-xl font-semibold text-[#161616]">Audit Logs</h1>
-            <p className="text-sm text-[#525252] mt-1">Last 100 governed AI call records.</p>
+            <p className="text-sm text-[#525252] mt-1">Last 100 governed AI and Property Auctions approval records.</p>
           </div>
 
           <div className="ibm-panel p-4 flex items-center gap-3">

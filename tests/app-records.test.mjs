@@ -25,6 +25,14 @@ test("auction listing requires positive reserve, valuation and a future close", 
   assert.throws(() => records.parseAppRecord("property-auctions", "listing", { address: "1 Main St", seller: "A", reservePrice: 100, valuation: 100, closesOn: "2020-01-01" }));
 });
 
+test("auction calculations are display-only values derived from seller input", () => {
+  const listing = records.parseAppRecord("property-auctions", "listing", { address: "1 Main St", seller: "A", reservePrice: 1_500_000, valuation: 2_000_000, closesOn: "2099-01-01" });
+  const bid = records.parseAppRecord("property-auctions", "bid", { listingId: "listing-id", bidAmount: 200_000 });
+  assert.equal(listing.payload.listingFee, 5_000);
+  assert.deepEqual(listing.payload.documents, []);
+  assert.equal(bid.payload.depositPreview, 50_000);
+});
+
 test("paper trades reject fractional shares and invalid sides", () => {
   assert.throws(() => records.parseAppRecord("stock-exchange", "paper-order", { exchange: "NSE", symbol: "ABC", side: "buy", quantity: 1.5, price: 100 }));
   assert.throws(() => records.parseAppRecord("stock-exchange", "paper-order", { exchange: "NSE", symbol: "ABC", side: "withdraw", quantity: 1, price: 100 }));
