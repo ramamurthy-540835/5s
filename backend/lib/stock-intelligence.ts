@@ -7,7 +7,7 @@ export type SourceClass = "verified_filing" | "company_statement" | "analyst_opi
 export type MarketObservation = { symbol: string; exchange: string; asOf: string; close: number; high?: number; low?: number; volume?: number; niftyClose?: number; sectorClose?: number; indiaVix?: number; usdInr?: number; brent?: number; repoRate?: number; inflation?: number; fiiNetFlow?: number; sourceUrl: string; sourceClass: SourceClass };
 export type FundamentalSnapshot = { symbol: string; exchange: string; asOf: string; fiscalPeriod: string; revenue?: number; netProfit?: number; ebitdaMargin?: number; eps?: number; roe?: number; roce?: number; debtToEquity?: number; freeCashFlow?: number; pe?: number; pb?: number; evEbitda?: number; dividendYield?: number; sourceUrl: string; sourceClass: SourceClass };
 export type ResearchItem = { symbol: string; exchange: string; publishedAt: string; title: string; summary: string; sourceUrl: string; sourceClass: SourceClass; materiality: "low" | "medium" | "high"; conflicted?: boolean };
-export type Factor = { id: string; rawValue: number | null; normalizedScore: number; direction: "positive" | "negative" | "neutral"; weight: number; confidence: "high" | "medium" | "low"; freshness: "fresh" | "stale" | "missing"; source: string[]; explanation: string };
+export type Factor = { id: string; rawValue: number | null; normalizedScore: number; direction: "positive" | "negative" | "neutral"; weight: number; confidence: "high" | "medium" | "low"; freshness: "fresh" | "stale" | "missing"; availability: "available" | "unavailable"; source: string[]; explanation: string };
 type Timeframe = "3Y" | "1Y" | "6M" | "3M" | "1M" | "1W" | "1D";
 type Horizon = "1W" | "1M" | "3M" | "6M" | "12M";
 const DAYS: Record<Timeframe, number> = { "3Y": 1095, "1Y": 365, "6M": 182, "3M": 91, "1M": 30, "1W": 7, "1D": 1 };
@@ -73,7 +73,7 @@ function latestFundamental(rows: FundamentalSnapshot[]) { return [...rows].sort(
 function sources(observations: MarketObservation[], fundamentals: FundamentalSnapshot[], research: ResearchItem[]) { return [...new Set([...observations, ...fundamentals, ...research].map((row) => row.sourceUrl).filter(Boolean))].slice(0, 30); }
 function factor(id: string, rawValue: number | null, weight: number, explanation: string, source: string[], sampleSize: number): Factor {
   const normalizedScore = rawValue === null ? 0 : clamp(rawValue / 20, -1, 1);
-  return { id, rawValue, normalizedScore, direction: classify(normalizedScore), weight, confidence: rawValue === null ? "low" : confidence(sampleSize), freshness: rawValue === null ? "missing" : "fresh", source, explanation };
+  return { id, rawValue, normalizedScore, direction: classify(normalizedScore), weight, confidence: rawValue === null ? "low" : confidence(sampleSize), freshness: rawValue === null ? "missing" : "fresh", availability: rawValue === null ? "unavailable" : "available", source, explanation };
 }
 
 export function scoreFactors(observations: MarketObservation[], fundamentals: FundamentalSnapshot[], research: ResearchItem[]) {
@@ -83,14 +83,14 @@ export function scoreFactors(observations: MarketObservation[], fundamentals: Fu
     factor("fundamentals", latest?.roce ?? latest?.roe ?? null, .15, latest ? "Return metrics are derived from the latest sourced fundamental snapshot." : "No sourced fundamental snapshot is available.", urls, fundamentals.length),
     factor("earnings_momentum", latest?.netProfit && latest.revenue ? (latest.netProfit / latest.revenue) * 100 : null, .10, "Uses the latest reported profit margin when sourced results are available.", urls, fundamentals.length),
     factor("valuation", latest?.pe ? -Math.max(0, latest.pe - 25) / 2 : null, .10, "A high P/E is treated as valuation risk; peer and historical valuation data are required for a full score.", urls, fundamentals.length),
-    factor("currency", oneMonth?.price.changePct ?? null, .05, "Currency sensitivity needs company-specific foreign revenue, cost, debt and hedge data; this is a neutral proxy until supplied.", urls, observations.length),
+    factor("currency", null, .05, "Unavailable: company-specific foreign revenue, cost, debt and hedge data have not been sourced.", [], 0),
     factor("interest_rates", latest?.debtToEquity === undefined ? null : -latest.debtToEquity * 10, .05, "Leverage is used as a refinancing-rate sensitivity proxy.", urls, fundamentals.length),
-    factor("inflation_input_costs", latest?.ebitdaMargin ?? null, .05, "Margin is a proxy only; input-cost exposure and pass-through data are required.", urls, fundamentals.length),
+    factor("inflation_input_costs", null, .05, "Unavailable: sourced input-cost exposure and pricing-power data are required.", [], 0),
     factor("sector_dynamics", oneMonth?.relativeStrength.sectorPct ?? null, .10, "Measures relative performance versus the supplied sector index.", urls, observations.length),
     factor("capital_flows", observations.at(-1)?.fiiNetFlow ?? null, .05, "Uses the latest sourced FII/FPI flow observation when available.", urls, observations.length),
-    factor("global_geopolitical_risk", observations.at(-1)?.usdInr ? -(observations.at(-1)?.usdInr || 0) / 100 : null, .05, "Needs a documented company exposure map; USD/INR is an incomplete proxy.", urls, observations.length),
+    factor("global_geopolitical_risk", null, .05, "Unavailable: a documented company-specific global exposure map is required.", [], 0),
     factor("events", recentEvents ? recentEvents * 5 : null, .10, "Counts non-conflicted, high-materiality sourced events; direction requires analyst review.", urls, research.length),
-    factor("sentiment", research.length ? (research.filter((item) => item.sourceClass === "verified_filing" || item.sourceClass === "company_statement").length / research.length) * 10 : null, .05, "Gives more confidence to filings and company statements than unverified reports.", urls, research.length),
+    factor("sentiment", null, .05, "Unavailable: verified, licensed sentiment observations are required; source reliability is not a sentiment score.", [], 0),
     factor("technicals", oneYear?.price.changePct ?? null, .15, "Technical trend is a timing overlay and does not override fundamental or macro risk.", urls, observations.length),
   ];
 }
@@ -102,8 +102,8 @@ export function generateScenarios(observations: MarketObservation[]) {
   return (Object.keys(HORIZON_DAYS) as Horizon[]).map((horizon) => {
     const scale = Math.sqrt(HORIZON_DAYS[horizon] / 252); const base = drift * HORIZON_DAYS[horizon] / 252; const probabilities = normalizeScenarioProbabilities([.15, .50, .25, .10]);
     const definitions = [["bull", base + 1.25 * volatility * scale], ["base", base], ["bear", base - 1.0 * volatility * scale], ["stress", base - 2.0 * volatility * scale]] as const;
-    const scenarios = definitions.map(([name, expectedReturnPct], index) => ({ name, probability: probabilities[index], expectedReturnPct: Number(expectedReturnPct.toFixed(2)), expectedPriceRange: { low: Number((latest.close * (1 + (expectedReturnPct - volatility * scale) / 100)).toFixed(2)), high: Number((latest.close * (1 + (expectedReturnPct + volatility * scale) / 100)).toFixed(2)) }, primaryDrivers: ["Historical drift and volatility"], primaryRisks: ["Model uncertainty", "Market, macro and event risk"], assumptions: ["No unrecorded material event", "Historical volatility remains representative"], confidence: confidence(sorted.length), invalidationConditions: ["Material filing, earnings, policy or liquidity change", "Data becomes stale or conflicts"], dataSources: [...new Set(sorted.map((row) => row.sourceUrl))] }));
-    return { horizon, available: true, scenarios, probabilityWeightedReturnPct: Number(probabilityWeightedReturn(scenarios).toFixed(2)) };
+    const scenarios = definitions.map(([name, expectedReturnPct]) => ({ name, probability: null as number | null, expectedReturnPct: Number(expectedReturnPct.toFixed(2)), expectedPriceRange: { low: Number((latest.close * (1 + (expectedReturnPct - volatility * scale) / 100)).toFixed(2)), high: Number((latest.close * (1 + (expectedReturnPct + volatility * scale) / 100)).toFixed(2)) }, primaryDrivers: ["Historical drift and volatility"], primaryRisks: ["Model uncertainty", "Market, macro and event risk"], assumptions: ["No unrecorded material event", "Historical volatility remains representative"], confidence: null, invalidationConditions: ["Material filing, earnings, policy or liquidity change", "Data becomes stale or conflicts"], dataSources: [...new Set(sorted.map((row) => row.sourceUrl))] }));
+    return { horizon, available: true, calibrated: false, scenarios, probabilityWeightedReturnPct: null, limitation: "Illustrative scenarios only: probabilities, confidence, and weighted expected return are suppressed until walk-forward calibration is complete." };
   });
 }
 

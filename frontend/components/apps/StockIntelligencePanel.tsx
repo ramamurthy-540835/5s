@@ -27,6 +27,7 @@ export default function StockIntelligencePanel() {
   const [bseRanking, setBseRanking] = useState<Ranking | null>(null);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Instrument[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [activeMatch, setActiveMatch] = useState(-1);
   const searchController = useRef<AbortController | null>(null);
@@ -59,7 +60,7 @@ export default function StockIntelligencePanel() {
         const response = await fetch(`/api/prism/apps/stock-exchange?view=search&q=${encodeURIComponent(query)}`, { cache: "no-store", signal: controller.signal });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Search is unavailable");
-        setMatches(Array.isArray(body.instruments) ? body.instruments : []); setActiveMatch(-1);
+        setMatches(Array.isArray(body.instruments) ? body.instruments : []); setNextCursor(typeof body.nextCursor === "string" ? body.nextCursor : null); setActiveMatch(-1);
       } catch (cause) {
         if ((cause as Error).name !== "AbortError") setMessage((cause as Error).message);
       } finally { if (!controller.signal.aborted) setSearching(false); }
@@ -68,7 +69,7 @@ export default function StockIntelligencePanel() {
   }, [query]);
 
   const choose = (item: Instrument) => {
-    setQuery(""); setMatches([]); setActiveMatch(-1);
+    setQuery(""); setMatches([]); setNextCursor(null); setActiveMatch(-1);
     window.history.replaceState(null, "", `/admin/prism/stock-intelligence?instrument=${encodeURIComponent(item.instrumentId)}`);
     void load(item.instrumentId);
   };
@@ -93,7 +94,7 @@ export default function StockIntelligencePanel() {
       <div className="flex flex-wrap gap-2" aria-label="Historical timeframe">{frames.map((item) => <button key={item} type="button" className={frame === item ? "ibm-btn-primary px-3 py-1" : "ibm-btn-secondary px-3 py-1"} onClick={() => setFrame(item)}>{item === "1D" ? "Today" : item}</button>)}</div>
       <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">{frame === "1D" ? "Today" : frame} historical analysis</h3>{timeframe?.available ? <><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><p>Price change: <strong>{pct(timeframe.price.changePct)}</strong></p><p>Volatility: <strong>{pct(timeframe.price.volatilityAnnualizedPct)}</strong></p><p>Max drawdown: <strong>{pct(timeframe.price.maxDrawdownPct)}</strong></p><p>Nifty relative strength: <strong>{pct(timeframe.relativeStrength.nifty50Pct)}</strong></p><p>Sector relative strength: <strong>{pct(timeframe.relativeStrength.sectorPct)}</strong></p><p>Abnormal volume: <strong>{timeframe.volume.abnormal === null ? "—" : timeframe.volume.abnormal ? "Detected" : "No"}</strong></p><p>RSI (14): <strong>{timeframe.technical.rsi14?.toFixed?.(1) ?? "—"}</strong></p><p>Support / resistance: <strong>{timeframe.technical.support?.toFixed?.(2) ?? "—"} / {timeframe.technical.resistance?.toFixed?.(2) ?? "—"}</strong></p></div><p className="mt-3 text-[#525252]">{timeframe.interpretation}</p></> : <p className="mt-2 text-[#525252]">{timeframe?.interpretation || "Insufficient sourced observations for this timeframe."}</p>}<p className="mt-3 text-xs text-[#525252]">Chart/OHLC export requires an authorized provider and appropriate license. This view does not fill market holidays or invent intraday bars.</p></div>
       <div className="flex flex-wrap gap-2" aria-label="Forecast horizon">{horizons.map((item) => <button key={item} type="button" className={horizon === item ? "ibm-btn-primary px-3 py-1" : "ibm-btn-secondary px-3 py-1"} onClick={() => setHorizon(item)}>{item}</button>)}</div>
-      <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">{horizon} future outlook</h3>{scenario?.available ? <><p className="mt-2 rounded border-l-4 border-amber-500 bg-amber-50 p-2 text-xs">Illustrative scenarios from the deterministic baseline. They are not calibrated probabilities; do not use the displayed weighted return as an investment signal.</p><div className="mt-3 grid gap-3 lg:grid-cols-4">{scenario.scenarios.map((item: any) => <div key={item.name} className="rounded bg-[#f4f7fb] p-3"><strong className="capitalize">{item.name}</strong><p>Illustrative weight: {pct(item.probability * 100)}</p><p>Expected return: {pct(item.expectedReturnPct)}</p><p>Range: {inr(item.expectedPriceRange.low)}–{inr(item.expectedPriceRange.high)}</p><p className="mt-1 text-xs text-[#525252]">Confidence: {item.confidence}. {item.invalidationConditions?.[0]}</p></div>)}</div></> : <p className="mt-2 text-[#525252]">{scenario?.reason || "Forecast suppressed: insufficient sourced history."}</p>}</div>
+      <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">{horizon} future outlook</h3>{scenario?.available ? <><p className="mt-2 rounded border-l-4 border-amber-500 bg-amber-50 p-2 text-xs">{scenario.limitation || "Illustrative scenarios only; probabilities and confidence are unavailable."}</p><div className="mt-3 grid gap-3 lg:grid-cols-4">{scenario.scenarios.map((item: any) => <div key={item.name} className="rounded bg-[#f4f7fb] p-3"><strong className="capitalize">{item.name}</strong><p>Probability: unavailable pending calibration</p><p>Expected return: {pct(item.expectedReturnPct)}</p><p>Range: {inr(item.expectedPriceRange.low)}–{inr(item.expectedPriceRange.high)}</p><p className="mt-1 text-xs text-[#525252]">{item.invalidationConditions?.[0]}</p></div>)}</div></> : <p className="mt-2 text-[#525252]">{scenario?.reason || "Forecast suppressed: insufficient sourced history."}</p>}</div>
       <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">Evidence & drivers</h3><div className="mt-2 grid gap-2 md:grid-cols-2">{report.factors?.map((item: any) => <div className="rounded bg-[#f4f7fb] p-2" key={item.id}><strong>{String(item.id).replaceAll("_", " ")}</strong><p>Score: {Number(item.normalizedScore).toFixed(2)} · Confidence: {item.confidence} · Freshness: {item.freshness}</p><p className="text-xs text-[#525252]">{item.explanation}</p></div>)}</div></div>
       <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">Sources, risks & limitations</h3><p className="mt-2">{report.explainability?.limitations?.join(" ")}</p>{report.research?.length ? <ul className="mt-3 list-disc space-y-1 pl-5">{report.research.map((item: any) => <li key={`${item.publishedAt}:${item.sourceUrl}`}><a className="text-blue-700 underline" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.title}</a> · {item.sourceClass} · {item.materiality}{item.conflicted ? " · conflicting" : ""}</li>)}</ul> : <p className="mt-2 text-[#525252]">No sourced filings or research items are available.</p>}</div>
     </>}

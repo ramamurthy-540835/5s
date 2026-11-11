@@ -22,12 +22,14 @@ test("multi-timeframe aggregation calculates price, relative strength and volume
   assert.ok(oneMonth.relativeStrength.nifty50Pct > 0);
 });
 
-test("scenario probabilities are normalized and weighted return uses every scenario", () => {
+test("illustrative scenarios suppress uncalibrated probabilities while the probability helper remains deterministic", () => {
   const scenarios = intelligence.generateScenarios(observations);
   const threeMonths = scenarios.find((item) => item.horizon === "3M");
   assert.equal(threeMonths.available, true);
   assert.equal(threeMonths.scenarios.length, 4);
-  assert.ok(Math.abs(threeMonths.scenarios.reduce((sum, item) => sum + item.probability, 0) - 1) < 1e-12);
+  assert.equal(threeMonths.calibrated, false);
+  assert.ok(threeMonths.scenarios.every((item) => item.probability === null && item.confidence === null));
+  assert.equal(threeMonths.probabilityWeightedReturnPct, null);
   assert.equal(intelligence.probabilityWeightedReturn([{ probability: 2, expectedReturnPct: 10 }, { probability: 2, expectedReturnPct: -2 }]), 4);
 });
 

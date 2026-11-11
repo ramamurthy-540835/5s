@@ -78,13 +78,16 @@ export async function GET(req: Request, { params }: { params: { app: string } })
       const query = (new URL(req.url).searchParams.get("q") || "").trim().toUpperCase();
       if (query.length < 3) return NextResponse.json({ instruments: [], nextCursor: null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
       const exchange = (new URL(req.url).searchParams.get("exchange") || "").toUpperCase();
-      const matches = symbols.filter((item) => !exchange || item.exchange === exchange).map((item) => {
+      const limit = Math.max(1, Math.min(50, Number(new URL(req.url).searchParams.get("limit")) || 20));
+      const offset = Math.max(0, Number(new URL(req.url).searchParams.get("cursor")) || 0);
+      const ranked = symbols.filter((item) => !exchange || item.exchange === exchange).map((item) => {
         const candidates = [item.symbol, item.companyName || "", item.isin || "", ...item.aliases].map((value) => value.toUpperCase());
         const exact = candidates.some((value) => value === query); const prefix = candidates.some((value) => value.startsWith(query));
         return { ...item, rank: exact ? 0 : prefix ? 1 : 2, matches: candidates.some((value) => value.includes(query)) };
-      }).filter((item) => item.matches).sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol)).slice(0, 50)
+      }).filter((item) => item.matches).sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol));
+      const matches = ranked.slice(offset, offset + limit)
         .map(({ rank, matches, ...item }) => item);
-      return NextResponse.json({ instruments: matches, nextCursor: null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ instruments: matches, nextCursor: offset + limit < ranked.length ? String(offset + limit) : null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
     }
     const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || symbols[0];
     const observations = parsed.filter((row) => row.kind === "market-observation").map((row) => row.payload as unknown as MarketObservation);
