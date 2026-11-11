@@ -10,6 +10,8 @@ export type IndiaReferenceInstrument = {
   symbol: string;
   companyName: string;
   aliases: string[];
+  /** ISIN is intentionally omitted until the licensed instrument master syncs it. */
+  isin?: string | null;
   tradingStatus: "reference_only";
   sourceUrl: string;
 };
