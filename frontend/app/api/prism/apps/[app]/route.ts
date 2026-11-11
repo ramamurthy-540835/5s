@@ -6,6 +6,8 @@ import { env } from "@backend/lib/env";
 import { queryBigQuery } from "@backend/lib/bigquery";
 import { appKinds, parseAppRecord, type AppName, type AppKind } from "@backend/lib/app-records";
 import { appOrgId } from "@backend/lib/app-tenancy";
+import { buildStockIntelligence, rankIndiaStocks, type FundamentalSnapshot, type MarketObservation, type RankingMode, type ResearchItem } from "@backend/lib/stock-intelligence";
+import { marketDataProviderStatus } from "@backend/lib/market-data-provider";
 
 type Row = { id: string; owner_id: string; kind: AppKind; status: string; title: string; payload_json: string; created_at: unknown; updated_at: unknown };
 type AuctionOverviewListing = { id: string; title: string; reservePrice: number; closesOn: string; listingFee: number; bidCount: number; highestBid: number };
@@ -53,6 +55,56 @@ export async function GET(req: Request, { params }: { params: { app: string } })
         closesOn: String(payload.closesOn || ""), listingFee: Number(payload.listingFee) || 0, ...metric };
     });
     return NextResponse.json({ openListings, simulatedBidCount: bids.length }, { headers: { "Cache-Control": "no-store" } });
+  }
+  const stockView = new URL(req.url).searchParams.get("view");
+  if (app === "stock-exchange" && ["intelligence", "top5", "search"].includes(stockView || "")) {
+    const providerStatus = marketDataProviderStatus();
+    const rows = await queryBigQuery<Row>(`SELECT id,owner_id,kind,status,title,payload_json,created_at,updated_at FROM ${table}
+      WHERE org_id=@orgId AND owner_id=@userId AND app='stock-exchange'
+      AND kind IN UNNEST(@kinds) ORDER BY created_at ASC LIMIT 10000`,
+      { orgId, userId: user.id, kinds: ["instrument", "market-observation", "fundamental-snapshot", "research-item"] });
+    const parsed = rows.flatMap((row) => { try { return [{ kind: row.kind, payload: JSON.parse(row.payload_json || "{}") as Record<string, unknown> }]; } catch { return []; } });
+    const symbols = [...new Map(parsed.filter((row) => typeof row.payload.symbol === "string" && typeof row.payload.exchange === "string")
+      .map((row) => {
+        const exchange = String(row.payload.exchange).toUpperCase(); const symbol = String(row.payload.symbol).toUpperCase();
+        return [`${exchange}:${symbol}`, { exchange, symbol, instrumentId: `${exchange}:${symbol}`,
+          companyName: typeof row.payload.companyName === "string" ? row.payload.companyName : null,
+          aliases: Array.isArray(row.payload.aliases) ? row.payload.aliases.filter((item): item is string => typeof item === "string").slice(0, 20) : [],
+          isin: typeof row.payload.isin === "string" ? row.payload.isin : null,
+          tradingStatus: typeof row.payload.tradingStatus === "string" ? row.payload.tradingStatus : "unknown" }];
+      })).values()];
+    const requested = (new URL(req.url).searchParams.get("instrument") || new URL(req.url).searchParams.get("symbol"))?.toUpperCase();
+    if (stockView === "search") {
+      const query = (new URL(req.url).searchParams.get("q") || "").trim().toUpperCase();
+      if (query.length < 3) return NextResponse.json({ instruments: [], nextCursor: null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
+      const exchange = (new URL(req.url).searchParams.get("exchange") || "").toUpperCase();
+      const matches = symbols.filter((item) => !exchange || item.exchange === exchange).map((item) => {
+        const candidates = [item.symbol, item.companyName || "", item.isin || "", ...item.aliases].map((value) => value.toUpperCase());
+        const exact = candidates.some((value) => value === query); const prefix = candidates.some((value) => value.startsWith(query));
+        return { ...item, rank: exact ? 0 : prefix ? 1 : 2, matches: candidates.some((value) => value.includes(query)) };
+      }).filter((item) => item.matches).sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol)).slice(0, 50)
+        .map(({ rank, matches, ...item }) => item);
+      return NextResponse.json({ instruments: matches, nextCursor: null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
+    }
+    const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || symbols[0];
+    const observations = parsed.filter((row) => row.kind === "market-observation").map((row) => row.payload as unknown as MarketObservation);
+    const fundamentals = parsed.filter((row) => row.kind === "fundamental-snapshot").map((row) => row.payload as unknown as FundamentalSnapshot);
+    const research = parsed.filter((row) => row.kind === "research-item").map((row) => row.payload as unknown as ResearchItem);
+    if (stockView === "top5") {
+      const candidateMode = new URL(req.url).searchParams.get("mode") || "balanced";
+      const exchange = (new URL(req.url).searchParams.get("exchange") || "").toUpperCase();
+      if (["top-gainers", "most-active", "market-leaders"].includes(candidateMode)) {
+        return NextResponse.json({ selected: [], excluded: [], exchange: exchange || null, mode: candidateMode, providerStatus,
+          limitation: `${candidateMode.replaceAll("-", " ")} requires an authorized market-data provider with current exchange-wide price, volume, or market-cap coverage.` }, { headers: { "Cache-Control": "no-store" } });
+      }
+      const mode: RankingMode = ["momentum", "quality", "value", "growth", "balanced"].includes(candidateMode) ? candidateMode as RankingMode : "balanced";
+      const includeFlagged = new URL(req.url).searchParams.get("includeFlagged") === "true";
+      const candidates = exchange ? symbols.filter((symbol) => symbol.exchange === exchange) : symbols;
+      return NextResponse.json({ ...rankIndiaStocks(candidates.map((symbol) => ({ ...symbol, observations, fundamentals, research })), mode, { includeFlagged, limit: 5 }), exchange: exchange || null,
+        providerStatus, limitation: providerStatus.configured ? "Rankings use eligible sourced workspace records until the provider ingestion job is enabled." : "No licensed market-data provider is configured. Results use only your sourced workspace records." }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (!selected) return NextResponse.json({ symbols: [], report: null, disclaimer: "For research and education only. Not investment advice. Forecasts are uncertain; losses are possible. No broker execution is connected." }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ symbols, report: buildStockIntelligence({ ...selected, observations, fundamentals, research }) }, { headers: { "Cache-Control": "no-store" } });
   }
   const personalRecords = app === "stock-exchange" || (app === "property-auctions" && user.role !== "admin");
   const rows = await queryBigQuery<Row>(`SELECT id,owner_id,kind,status,title,payload_json,created_at,updated_at FROM ${table}

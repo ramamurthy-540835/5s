@@ -1,0 +1,50 @@
+/**
+ * Provider-neutral boundary for licensed Indian market data.  This module does
+ * not scrape exchanges and does not contain provider URLs or credentials.
+ * A deployment supplies an approved adapter and credentials only through the
+ * runtime environment or Secret Manager.
+ */
+export type Exchange = "NSE" | "BSE";
+export type DataClassification = "live" | "delayed" | "EOD" | "unavailable";
+export type ProviderStatus = { configured: boolean; provider: string | null; reason: string | null; classification: DataClassification };
+export type SourceMeta = { sourceUrl: string; observedAt: string; fetchedAt: string; classification: DataClassification; provider: string };
+export type InstrumentMasterRecord = { instrumentId: string; exchange: Exchange; symbol: string; companyName: string; aliases: string[]; isin?: string; tradingStatus: "active" | "suspended" | "delisted"; syncedAt: string };
+export type OhlcvBar = SourceMeta & { open: number; high: number; low: number; close: number; volume?: number; adjusted: boolean };
+export type CorporateAction = SourceMeta & { kind: "split" | "bonus" | "dividend" | "rights" | "buyback" | "other"; effectiveDate: string; ratio?: string };
+export type ProviderPage<T> = { items: T[]; nextCursor: string | null };
+
+export interface IndiaMarketDataProvider {
+  readonly name: string;
+  readonly classification: Exclude<DataClassification, "unavailable">;
+  searchInstruments(input: { query: string; exchange?: Exchange; cursor?: string; limit: number }): Promise<ProviderPage<InstrumentMasterRecord>>;
+  history(input: { instrumentId: string; range: "3y" | "1y" | "6m" | "3m" | "1m" | "1w" | "1d"; intraday?: boolean }): Promise<OhlcvBar[]>;
+  corporateActions(input: { instrumentId: string }): Promise<CorporateAction[]>;
+  fundamentals(input: { instrumentId: string }): Promise<unknown[]>;
+  indices(input: { exchange: Exchange; sector?: string }): Promise<unknown[]>;
+  announcements(input: { instrumentId: string; cursor?: string }): Promise<ProviderPage<unknown>>;
+}
+
+type CacheEntry<T> = { value: T; expiresAt: number };
+const memoryCache = new Map<string, CacheEntry<unknown>>();
+
+export async function withProviderCache<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+  const cached = memoryCache.get(key) as CacheEntry<T> | undefined;
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const value = await load(); memoryCache.set(key, { value, expiresAt: Date.now() + ttlMs }); return value;
+}
+
+export async function withRetry<T>(load: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await load(); }
+    catch (error) { lastError = error; if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 150 * 2 ** attempt)); }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Market-data provider request failed");
+}
+
+export function marketDataProviderStatus(): ProviderStatus {
+  const provider = process.env.MARKET_DATA_PROVIDER?.trim() || null;
+  const credentialPresent = Boolean(process.env.MARKET_DATA_API_KEY || process.env.MARKET_DATA_BASE_URL);
+  if (!provider || !credentialPresent) return { configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." };
+  return { configured: false, provider, classification: "unavailable", reason: "Provider configuration is present but no approved provider adapter has been registered." };
+}

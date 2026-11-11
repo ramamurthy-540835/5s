@@ -1,10 +1,10 @@
 export type AppName = "textile-exports" | "property-auctions" | "stock-exchange";
-export type AppKind = "shipment" | "route-option" | "listing" | "bidder" | "bid" | "instrument" | "paper-order";
+export type AppKind = "shipment" | "route-option" | "listing" | "bidder" | "bid" | "instrument" | "paper-order" | "market-observation" | "fundamental-snapshot" | "research-item";
 
 export const appKinds: Record<AppName, AppKind[]> = {
   "textile-exports": ["shipment", "route-option"],
   "property-auctions": ["listing", "bidder", "bid"],
-  "stock-exchange": ["instrument", "paper-order"],
+  "stock-exchange": ["instrument", "paper-order", "market-observation", "fundamental-snapshot", "research-item"],
 };
 
 const field = (data: Record<string, unknown>, key: string, max = 300) => String(data[key] ?? "").trim().slice(0, max);
@@ -16,6 +16,22 @@ const amount = (value: unknown) => {
 const date = (value: unknown) => {
   const result = String(value ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(result) || Number.isNaN(Date.parse(result))) throw new Error("Enter a valid date");
+  return result;
+};
+const optionalNumber = (value: unknown, key: string, min = -1_000_000_000_000, max = 1_000_000_000_000) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const result = Number(value);
+  if (!Number.isFinite(result) || result < min || result > max) throw new Error(`Enter a valid ${key}`);
+  return result;
+};
+const sourceUrl = (value: unknown) => {
+  const result = field({ value }, "value", 2048);
+  try { const url = new URL(result); if (url.protocol !== "https:") throw new Error(); return url.toString(); }
+  catch { throw new Error("Enter a valid HTTPS source URL"); }
+};
+const sourceClass = (value: unknown) => {
+  const result = field({ value }, "value", 40);
+  if (!["verified_filing", "company_statement", "analyst_opinion", "media_report", "rumor", "unverified_claim"].includes(result)) throw new Error("Choose a valid source classification");
   return result;
 };
 
@@ -74,7 +90,32 @@ export function parseAppRecord(app: AppName, kind: AppKind, input: unknown) {
     if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange)) throw new Error("Enter a valid symbol and exchange");
     const priceAsOf = date(data.priceAsOf);
     if (priceAsOf > new Date().toISOString().slice(0, 10)) throw new Error("Reference price date cannot be in the future");
-    return { title: `${exchange}:${symbol}`, payload: { symbol, exchange, note: field(data, "note", 500), referencePrice: amount(data.referencePrice), priceAsOf } };
+    const isin = field(data, "isin", 12).toUpperCase();
+    if (isin && !/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)) throw new Error("Enter a valid 12-character ISIN");
+    const aliases = field(data, "aliases", 500).split(",").map((value) => value.trim()).filter(Boolean).slice(0, 20);
+    const tradingStatus = field(data, "tradingStatus", 20).toLowerCase() || "unknown";
+    if (!["active", "suspended", "delisted", "unknown"].includes(tradingStatus)) throw new Error("Choose a valid trading status");
+    return { title: `${exchange}:${symbol}`, payload: { symbol, exchange, companyName: field(data, "companyName", 200), aliases, isin, tradingStatus,
+      note: field(data, "note", 500), referencePrice: amount(data.referencePrice), priceAsOf } };
+  }
+  if (kind === "market-observation") {
+    const symbol = field(data, "symbol", 20).toUpperCase(); const exchange = field(data, "exchange", 20).toUpperCase();
+    if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange)) throw new Error("Enter a valid symbol and exchange");
+    const asOf = date(data.asOf); if (asOf > new Date().toISOString().slice(0, 10)) throw new Error("Observation date cannot be in the future");
+    return { title: `${exchange}:${symbol} ${asOf}`, payload: { symbol, exchange, asOf, close: amount(data.close), high: optionalNumber(data.high, "high", 0), low: optionalNumber(data.low, "low", 0), volume: optionalNumber(data.volume, "volume", 0), niftyClose: optionalNumber(data.niftyClose, "Nifty 50 close", 0), sectorClose: optionalNumber(data.sectorClose, "sector index close", 0), indiaVix: optionalNumber(data.indiaVix, "India VIX", 0), usdInr: optionalNumber(data.usdInr, "USD/INR", 0), brent: optionalNumber(data.brent, "Brent crude", 0), repoRate: optionalNumber(data.repoRate, "repo rate", 0), inflation: optionalNumber(data.inflation, "inflation"), fiiNetFlow: optionalNumber(data.fiiNetFlow, "FII/FPI flow"), sourceUrl: sourceUrl(data.sourceUrl), sourceClass: sourceClass(data.sourceClass) } };
+  }
+  if (kind === "fundamental-snapshot") {
+    const symbol = field(data, "symbol", 20).toUpperCase(); const exchange = field(data, "exchange", 20).toUpperCase();
+    if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange)) throw new Error("Enter a valid symbol and exchange");
+    const asOf = date(data.asOf); const fiscalPeriod = field(data, "fiscalPeriod", 30); if (!fiscalPeriod) throw new Error("Fiscal period is required");
+    return { title: `${exchange}:${symbol} fundamentals ${fiscalPeriod}`, payload: { symbol, exchange, asOf, fiscalPeriod, revenue: optionalNumber(data.revenue, "revenue"), netProfit: optionalNumber(data.netProfit, "net profit"), ebitdaMargin: optionalNumber(data.ebitdaMargin, "EBITDA margin"), eps: optionalNumber(data.eps, "EPS"), roe: optionalNumber(data.roe, "ROE"), roce: optionalNumber(data.roce, "ROCE"), debtToEquity: optionalNumber(data.debtToEquity, "debt to equity"), freeCashFlow: optionalNumber(data.freeCashFlow, "free cash flow"), pe: optionalNumber(data.pe, "P/E", 0), pb: optionalNumber(data.pb, "P/B", 0), evEbitda: optionalNumber(data.evEbitda, "EV/EBITDA", 0), dividendYield: optionalNumber(data.dividendYield, "dividend yield", 0), sourceUrl: sourceUrl(data.sourceUrl), sourceClass: sourceClass(data.sourceClass) } };
+  }
+  if (kind === "research-item") {
+    const symbol = field(data, "symbol", 20).toUpperCase(); const exchange = field(data, "exchange", 20).toUpperCase(); const title = field(data, "title", 300);
+    if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange) || !title) throw new Error("Symbol, exchange and title are required");
+    const publishedAt = date(data.publishedAt); const materiality = field(data, "materiality", 10);
+    if (!["low", "medium", "high"].includes(materiality)) throw new Error("Choose a valid materiality");
+    return { title, payload: { symbol, exchange, publishedAt, title, summary: field(data, "summary", 2000), materiality, sourceUrl: sourceUrl(data.sourceUrl), sourceClass: sourceClass(data.sourceClass), conflicted: data.conflicted === true || data.conflicted === "true" } };
   }
   const symbol = field(data, "symbol", 20).toUpperCase();
   const side = field(data, "side", 4).toLowerCase();

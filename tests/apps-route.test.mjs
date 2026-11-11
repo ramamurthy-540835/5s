@@ -6,6 +6,9 @@ import ts from "typescript";
 const validatorSource = fs.readFileSync(new URL("../backend/lib/app-records.ts", import.meta.url), "utf8");
 const validator = {};
 new Function("exports", "require", ts.transpileModule(validatorSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(validator, () => {});
+const intelligenceSource = fs.readFileSync(new URL("../backend/lib/stock-intelligence.ts", import.meta.url), "utf8");
+const intelligence = {};
+new Function("exports", "require", ts.transpileModule(intelligenceSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(intelligence, () => {});
 const routeSource = fs.readFileSync(new URL("../frontend/app/api/prism/apps/[app]/route.ts", import.meta.url), "utf8");
 const route = {};
 const writes = [];
@@ -24,6 +27,8 @@ new Function("exports", "require", ts.transpileModule(routeSource, { compilerOpt
     return Array.isArray(selected[0]) ? (selected.shift() || []) : selected;
   } };
   if (name === "@backend/lib/app-records") return validator;
+  if (name === "@backend/lib/stock-intelligence") return intelligence;
+  if (name === "@backend/lib/market-data-provider") return { marketDataProviderStatus: () => ({ configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." }) };
   if (name === "@backend/lib/app-tenancy") return {
     appOrgId: (app, session) => app === "property-auctions" ? "property-auctions" : session.orgId,
   };
@@ -39,7 +44,6 @@ test("anonymous users cannot create application records", async () => {
   assert.equal(writes.length, 0);
   user = { id: "member", email: "member@example.test", orgId: "org", role: "member" };
 });
-
 test("members cannot approve their own auction listing", async () => {
   user = { id: "member", email: "member@example.test", orgId: "property-auctions", role: "member" };
   selected = [{ id: "00000000-0000-0000-0000-000000000001", owner_id: "member", kind: "listing", status: "review", payload_json: "{}" }];
@@ -48,7 +52,6 @@ test("members cannot approve their own auction listing", async () => {
   assert.equal(response.status, 403);
   assert.equal(writes.length, 0);
 });
-
 test("property auctions use the shared marketplace tenant for original members, colleagues and admins", async () => {
   user = { id: "ai@aidirac.com", email: "ai@aidirac.com", orgId: "naturelabs", role: "member" };
   selected = [];
@@ -69,7 +72,7 @@ test("property auctions use the shared marketplace tenant for original members, 
   assert.equal(bid.status, 201);
   assert.ok(reads.every((read) => read.params.orgId === "property-auctions"));
 });
-
+// End of application-route regression tests.
 test("member Records are owner-filtered while the auction overview is aggregate-only", async () => {
   user = { id: "ai@aidirac.com", email: "ai@aidirac.com", orgId: "naturelabs", role: "member" };
   selected = [[{ id: "member-listing", owner_id: "ai@aidirac.com", kind: "listing", status: "open", title: "Velachery", payload_json: "{}", created_at: "", updated_at: "" }]];
@@ -140,3 +143,4 @@ test("simulated bid requires bidder verification", async () => {
   assert.equal(writes.length, 0);
   user = { id: "member", email: "member@example.test", orgId: "org", role: "member" };
 });
+// End of application-route regression tests.

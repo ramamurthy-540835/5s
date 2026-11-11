@@ -6,7 +6,9 @@ import WorkbenchHeader from "@/components/workbench/WorkbenchHeader";
 import { projectBriefs } from "@/config/project-briefs";
 import { iotSignals } from "@/config/iot-signals";
 
-const domains = ["Tax & GST", "Income Tax", "Textile Exports", "Property Auctions", "Finance", "Stock Exchange", "Industrial IoT", "Climate/IPCC", "Agriculture", "Careers", "Sales", "Other"];
+const domains = ["Tax & GST", "Income Tax", "Textile Exports", "Property Auctions", "Finance", "Stock Intelligence", "Industrial IoT", "Climate/IPCC", "Agriculture", "Careers", "Sales", "Other"];
+const prismApplicationNames = ["Textile Exports", "Property Auctions", "Stock Intelligence"];
+const prismApplicationPath = (name: string) => name === "Stock Intelligence" ? "stock-intelligence" : name.toLowerCase().replaceAll(" ", "-");
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [name, setName] = useState("");
@@ -46,9 +48,9 @@ export default function ProjectsPage() {
       <section className="space-y-3"><h2 className="text-lg font-semibold">Client workstreams</h2><p className="text-sm text-[#525252]">Select a brief to fill the form. Projects still go through admin approval.</p>
         <div className="grid md:grid-cols-2 gap-3">{projectBriefs.map((brief) => <div key={brief.name} className="ibm-panel p-4 space-y-2">
           <h3 className="font-semibold">{brief.name}</h3><p className="text-sm text-[#525252]">{brief.description}</p>
-          {brief.repositoryUrl ? <a className="text-sm text-blue-700 underline" href={brief.repositoryUrl} target="_blank" rel="noreferrer">Git repository</a> : <p className="text-sm text-[#525252]">{["Textile Exports", "Property Auctions", "Stock Exchange"].includes(brief.name) ? "Application built in PRISM" : "Repository URL needed"}</p>}
+          {brief.repositoryUrl ? <a className="text-sm text-blue-700 underline" href={brief.repositoryUrl} target="_blank" rel="noreferrer">Git repository</a> : <p className="text-sm text-[#525252]">{prismApplicationNames.includes(brief.name) ? "Application built in PRISM" : "Repository URL needed"}</p>}
           {brief.applicationUrl && <Link className="ml-4 text-sm text-blue-700 underline" href="/admin/prism/partners/gst">Partner GST access</Link>}
-          {(["Textile Exports", "Property Auctions", "Stock Exchange"].includes(brief.name)) && <Link className="ml-4 text-sm text-blue-700 underline" href={`/admin/prism/${brief.name.toLowerCase().replaceAll(" ", "-")}`}>Open application</Link>}
+          {(prismApplicationNames.includes(brief.name)) && <Link className="ml-4 text-sm text-blue-700 underline" href={`/admin/prism/${prismApplicationPath(brief.name)}`}>Open application</Link>}
           {brief.domainTag === "Industrial IoT" && <details className="text-sm"><summary className="cursor-pointer text-blue-700">View cement-ai sensor map</summary><div className="mt-2 grid gap-2 sm:grid-cols-2">{Object.entries(iotSignals).map(([group, signals]) => <div key={group}><strong>{group}</strong><ul className="list-disc pl-5">{signals.map(([key, label, unit]) => <li key={key}>{label} ({unit})</li>)}</ul></div>)}</div></details>}
           <div><button className="ibm-btn-secondary px-3 py-2" type="button" onClick={() => { setName(brief.name); setDomainTag(brief.domainTag); setDescription(brief.description); setRepositoryUrl(brief.repositoryUrl); setVisibility("private"); document.getElementById("project-form")?.scrollIntoView({ behavior: "smooth" }); }}>Use this brief</button></div>
         </div>)}</div>

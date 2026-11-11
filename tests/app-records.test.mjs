@@ -41,3 +41,18 @@ test("paper trades reject fractional shares and invalid sides", () => {
 test("watchlist rejects future manual quote dates", () => {
   assert.throws(() => records.parseAppRecord("stock-exchange", "instrument", { exchange: "NSE", symbol: "ABC", referencePrice: 100, priceAsOf: "2099-01-01" }));
 });
+
+test("watchlist preserves canonical-search metadata without accepting malformed ISINs", () => {
+  const instrument = records.parseAppRecord("stock-exchange", "instrument", { exchange: "NSE", symbol: "INFY", companyName: "Infosys Limited", aliases: "Infosys, INFOSYS", isin: "INE009A01021", tradingStatus: "active", referencePrice: 100, priceAsOf: "2026-01-01" });
+  assert.equal(instrument.payload.companyName, "Infosys Limited");
+  assert.deepEqual(instrument.payload.aliases, ["Infosys", "INFOSYS"]);
+  assert.equal(instrument.payload.isin, "INE009A01021");
+  assert.throws(() => records.parseAppRecord("stock-exchange", "instrument", { exchange: "NSE", symbol: "INFY", isin: "not-an-isin", referencePrice: 100, priceAsOf: "2026-01-01" }));
+});
+
+test("Stock Intelligence observations require a valid source and preserve provenance", () => {
+  assert.throws(() => records.parseAppRecord("stock-exchange", "market-observation", { exchange: "NSE", symbol: "DEMO", asOf: "2026-01-01", close: 100, sourceUrl: "http://example.test", sourceClass: "verified_filing" }));
+  const result = records.parseAppRecord("stock-exchange", "market-observation", { exchange: "NSE", symbol: "DEMO", asOf: "2026-01-01", close: 100, volume: 1000, sourceUrl: "https://example.test/filing", sourceClass: "verified_filing" });
+  assert.equal(result.payload.sourceUrl, "https://example.test/filing");
+  assert.equal(result.payload.sourceClass, "verified_filing");
+});

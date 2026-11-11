@@ -5,7 +5,7 @@ import { ensureSeeded } from "@backend/lib/bootstrap";
 import { env } from "@backend/lib/env";
 import { queryBigQuery } from "@backend/lib/bigquery";
 
-const domains = ["Tax & GST", "Income Tax", "Textile Exports", "Property Auctions", "Finance", "Stock Exchange", "Industrial IoT", "Climate/IPCC", "Agriculture", "Careers", "Sales", "Other"];
+const domains = ["Tax & GST", "Income Tax", "Textile Exports", "Property Auctions", "Finance", "Stock Intelligence", "Industrial IoT", "Climate/IPCC", "Agriculture", "Careers", "Sales", "Other"];
 export async function GET(req: Request) {
   const user = getSession(req);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });

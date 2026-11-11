@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { label: "Projects",         href: "/admin/prism/projects",    icon: FolderOpen },
   { label: "Textile Exports",  href: "/admin/prism/textile-exports", icon: Ship },
   { label: "Property Auctions", href: "/admin/prism/property-auctions", icon: Gavel },
-  { label: "Stock Exchange",   href: "/admin/prism/stock-exchange", icon: CandlestickChart },
+  { label: "Stock Intelligence", href: "/admin/prism/stock-intelligence", icon: CandlestickChart },
   { label: "Partner GST",      href: "/admin/prism/partners/gst", icon: ReceiptIndianRupee },
   { label: "Prompt Library",   href: "/admin/prism/prompts",     icon: BookOpen },
   { label: "Plans",            href: "/admin/prism/plans",       icon: FileText },

@@ -35,10 +35,10 @@ export const projectBriefs: ProjectBrief[] = [
     description: "Explore secure customer onboarding, ITR and income documents, property records, valuations, and loan workflow. A loan of roughly 30% of property value was discussed as a potential policy, not an approved lending rule. Require lender approval, privacy, KYC, and regulated lending review."
   },
   {
-    name: "Stock Exchange",
-    domainTag: "Stock Exchange",
+    name: "Stock Intelligence",
+    domainTag: "Stock Intelligence",
     repositoryUrl: "",
-    description: "Use the PRISM Stock Exchange workspace for a manual-price watchlist and paper trades. Live market data, brokerage, order execution, and real-money accounts require licensed providers and applicable regulatory review."
+    description: "Use PRISM Stock Intelligence for source-attributed market observations, multi-timeframe analysis, factor scoring and probabilistic scenarios. The retained paper portfolio is simulation-only; live market data, brokerage and real-money execution require licensed providers and regulatory review."
   },
   {
     name: "Industrial IoT",
