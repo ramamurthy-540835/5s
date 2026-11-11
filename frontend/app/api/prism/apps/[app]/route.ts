@@ -8,6 +8,7 @@ import { appKinds, parseAppRecord, type AppName, type AppKind } from "@backend/l
 import { appOrgId } from "@backend/lib/app-tenancy";
 import { buildStockIntelligence, rankIndiaStocks, type FundamentalSnapshot, type MarketObservation, type RankingMode, type ResearchItem } from "@backend/lib/stock-intelligence";
 import { marketDataProviderStatus } from "@backend/lib/market-data-provider";
+import { INDIA_REFERENCE_CATALOGUE_NOTICE, indiaReferenceCatalogue } from "@backend/lib/india-reference-catalog";
 
 type Row = { id: string; owner_id: string; kind: AppKind; status: string; title: string; payload_json: string; created_at: unknown; updated_at: unknown };
 type AuctionOverviewListing = { id: string; title: string; reservePrice: number; closesOn: string; listingFee: number; bidCount: number; highestBid: number };
@@ -64,7 +65,7 @@ export async function GET(req: Request, { params }: { params: { app: string } })
       AND kind IN UNNEST(@kinds) ORDER BY created_at ASC LIMIT 10000`,
       { orgId, userId: user.id, kinds: ["instrument", "market-observation", "fundamental-snapshot", "research-item"] });
     const parsed = rows.flatMap((row) => { try { return [{ kind: row.kind, payload: JSON.parse(row.payload_json || "{}") as Record<string, unknown> }]; } catch { return []; } });
-    const symbols = [...new Map(parsed.filter((row) => typeof row.payload.symbol === "string" && typeof row.payload.exchange === "string")
+    const workspaceSymbols = [...new Map(parsed.filter((row) => typeof row.payload.symbol === "string" && typeof row.payload.exchange === "string")
       .map((row) => {
         const exchange = String(row.payload.exchange).toUpperCase(); const symbol = String(row.payload.symbol).toUpperCase();
         return [`${exchange}:${symbol}`, { exchange, symbol, instrumentId: `${exchange}:${symbol}`,
@@ -73,6 +74,10 @@ export async function GET(req: Request, { params }: { params: { app: string } })
           isin: typeof row.payload.isin === "string" ? row.payload.isin : null,
           tradingStatus: typeof row.payload.tradingStatus === "string" ? row.payload.tradingStatus : "unknown" }];
       })).values()];
+    // Workspace records win over curated reference records because they carry
+    // the user's own provenance and can have actual sourced observations.
+    const symbols = [...new Map([...indiaReferenceCatalogue, ...workspaceSymbols]
+      .map((item) => [item.instrumentId, item])).values()];
     const requested = (new URL(req.url).searchParams.get("instrument") || new URL(req.url).searchParams.get("symbol"))?.toUpperCase();
     if (stockView === "search") {
       const query = (new URL(req.url).searchParams.get("q") || "").trim().toUpperCase();
@@ -87,9 +92,10 @@ export async function GET(req: Request, { params }: { params: { app: string } })
       }).filter((item) => item.matches).sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol));
       const matches = ranked.slice(offset, offset + limit)
         .map(({ rank, matches, ...item }) => item);
-      return NextResponse.json({ instruments: matches, nextCursor: offset + limit < ranked.length ? String(offset + limit) : null, minimumQueryLength: 3 }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ instruments: matches, nextCursor: offset + limit < ranked.length ? String(offset + limit) : null, minimumQueryLength: 3,
+        catalogueNotice: INDIA_REFERENCE_CATALOGUE_NOTICE }, { headers: { "Cache-Control": "no-store" } });
     }
-    const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || symbols[0];
+    const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || workspaceSymbols[0];
     const observations = parsed.filter((row) => row.kind === "market-observation").map((row) => row.payload as unknown as MarketObservation);
     const fundamentals = parsed.filter((row) => row.kind === "fundamental-snapshot").map((row) => row.payload as unknown as FundamentalSnapshot);
     const research = parsed.filter((row) => row.kind === "research-item").map((row) => row.payload as unknown as ResearchItem);

@@ -29,6 +29,7 @@ new Function("exports", "require", ts.transpileModule(routeSource, { compilerOpt
   if (name === "@backend/lib/app-records") return validator;
   if (name === "@backend/lib/stock-intelligence") return intelligence;
   if (name === "@backend/lib/market-data-provider") return { marketDataProviderStatus: () => ({ configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." }) };
+  if (name === "@backend/lib/india-reference-catalog") return { indiaReferenceCatalogue: [], INDIA_REFERENCE_CATALOGUE_NOTICE: "Reference catalogue unavailable in this isolated route test." };
   if (name === "@backend/lib/app-tenancy") return {
     appOrgId: (app, session) => app === "property-auctions" ? "property-auctions" : session.orgId,
   };
