@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import AppSidebar from "@/components/workbench/AppSidebar";
 import WorkbenchHeader from "@/components/workbench/WorkbenchHeader";
 import { displayRecordValue } from "@/components/apps/record-display";
-import StockIntelligencePanel from "@/components/apps/StockIntelligencePanel";
 
-type App = "textile-exports" | "property-auctions" | "stock-exchange";
+type App = "textile-exports" | "property-auctions";
 type Field = { key: string; label: string; type?: "number" | "date" | "textarea" | "select"; required?: boolean; options?: string[] };
 type Kind = { key: string; label: string; fields: Field[] };
 type RecordItem = { id: string; kind: string; status: string; title: string; ownerId: string; mine: boolean; payload: Record<string, any>; createdAt: string };
@@ -47,39 +46,10 @@ const kinds: Record<App, Kind[]> = {
       { key: "listingId", label: "Open listing", type: "select", required: true }, { key: "bidAmount", label: "Bid amount (INR)", type: "number", required: true },
     ] },
   ],
-  "stock-exchange": [
-    { key: "instrument", label: "Watchlist symbol", fields: [
-      { key: "exchange", label: "Exchange", type: "select", options: ["NSE", "BSE", "NASDAQ", "NYSE", "OTHER"], required: true },
-      { key: "symbol", label: "Ticker symbol", required: true }, { key: "companyName", label: "Company name" }, { key: "aliases", label: "Aliases (comma separated)" },
-      { key: "isin", label: "ISIN (if known)" }, { key: "tradingStatus", label: "Trading status", type: "select", options: ["active", "suspended", "delisted", "unknown"] },
-      { key: "referencePrice", label: "Manual reference price", type: "number", required: true },
-      { key: "priceAsOf", label: "Price date", type: "date", required: true }, { key: "note", label: "Notes", type: "textarea" },
-    ] },
-    { key: "paper-order", label: "Paper trade", fields: [
-      { key: "exchange", label: "Exchange", type: "select", required: true }, { key: "symbol", label: "Watchlist symbol", type: "select", required: true },
-      { key: "side", label: "Side", type: "select", options: ["buy", "sell"], required: true },
-      { key: "quantity", label: "Shares", type: "number", required: true }, { key: "price", label: "Simulated execution price", type: "number", required: true },
-      { key: "note", label: "Notes", type: "textarea" },
-    ] },
-    { key: "market-observation", label: "Sourced market observation", fields: [
-      { key: "exchange", label: "Exchange", type: "select", options: ["NSE", "BSE"], required: true }, { key: "symbol", label: "Ticker symbol", required: true },
-      { key: "asOf", label: "Observation date", type: "date", required: true }, { key: "close", label: "Close", type: "number", required: true }, { key: "volume", label: "Volume", type: "number" },
-      { key: "niftyClose", label: "Nifty 50 close", type: "number" }, { key: "sectorClose", label: "Sector index close", type: "number" }, { key: "usdInr", label: "USD/INR", type: "number" }, { key: "brent", label: "Brent crude", type: "number" }, { key: "fiiNetFlow", label: "FII/FPI flow", type: "number" },
-      { key: "sourceClass", label: "Source classification", type: "select", options: ["verified_filing", "company_statement", "analyst_opinion", "media_report", "rumor", "unverified_claim"], required: true }, { key: "sourceUrl", label: "HTTPS source URL", required: true },
-    ] },
-    { key: "fundamental-snapshot", label: "Sourced fundamentals", fields: [
-      { key: "exchange", label: "Exchange", type: "select", options: ["NSE", "BSE"], required: true }, { key: "symbol", label: "Ticker symbol", required: true }, { key: "asOf", label: "As-of date", type: "date", required: true }, { key: "fiscalPeriod", label: "Fiscal period", required: true },
-      { key: "revenue", label: "Revenue", type: "number" }, { key: "netProfit", label: "Net profit", type: "number" }, { key: "eps", label: "EPS", type: "number" }, { key: "roe", label: "ROE (%)", type: "number" }, { key: "roce", label: "ROCE (%)", type: "number" }, { key: "debtToEquity", label: "Debt / equity", type: "number" }, { key: "pe", label: "P/E", type: "number" }, { key: "sourceClass", label: "Source classification", type: "select", options: ["verified_filing", "company_statement", "analyst_opinion", "media_report"], required: true }, { key: "sourceUrl", label: "HTTPS source URL", required: true },
-    ] },
-    { key: "research-item", label: "Sourced filing or research", fields: [
-      { key: "exchange", label: "Exchange", type: "select", options: ["NSE", "BSE"], required: true }, { key: "symbol", label: "Ticker symbol", required: true }, { key: "publishedAt", label: "Published date", type: "date", required: true }, { key: "title", label: "Title", required: true }, { key: "summary", label: "Summary", type: "textarea" }, { key: "materiality", label: "Materiality", type: "select", options: ["low", "medium", "high"], required: true }, { key: "sourceClass", label: "Source classification", type: "select", options: ["verified_filing", "company_statement", "analyst_opinion", "media_report", "rumor", "unverified_claim"], required: true }, { key: "sourceUrl", label: "HTTPS source URL", required: true },
-    ] },
-  ],
 };
 const config: Record<App, { title: string; intro: string; note: string }> = {
   "textile-exports": { title: "Textile Exports", intro: "Track export opportunities, routes, documents and adviser review for each shipment.", note: "Routing through another country does not change origin by itself. Confirm classification, origin and duties with qualified customs advisers before shipping." },
   "property-auctions": { title: "Property Auctions", intro: "Create listings, review seller authority, verify bidders and run simulated bids.", note: "Bids are simulations. This app does not collect deposits, hold funds, transfer title or run a legally binding auction. Commission and deposit figures discussed earlier are not active terms." },
-  "stock-exchange": { title: "Stock Intelligence", intro: "Analyze source-attributed Indian-equity observations across timeframes, factors and probabilistic scenarios.", note: "Not investment advice. Predictions are probabilistic and may be wrong. Manual prices may be stale; paper trades are simulations only. No broker, exchange feed or real-money execution is connected." },
 };
 
 export default function DomainWorkspace({ app }: { app: App }) {
@@ -109,7 +79,6 @@ export default function DomainWorkspace({ app }: { app: App }) {
   }, [app]);
   useEffect(() => { load(); fetch("/api/prism/auth").then((response) => response.json()).then((result) => setRole(result.user?.role || "")); }, [load]);
   const active = kinds[app].find((item) => item.key === kind) || kinds[app][0];
-  const watchlist = records.filter((item) => item.kind === "instrument");
   const shipments = records.filter((item) => item.kind === "shipment" && item.mine);
   const personalOpenListings = records.filter((item) => item.kind === "listing" && item.status === "open" && item.payload.closesOn >= today());
   const openListings = app === "property-auctions" ? auctionOverview.openListings.filter((listing) => listing.closesOn >= today()).map((listing) => ({ id: listing.id, kind: "listing", status: "open", title: listing.title, ownerId: "", mine: false, createdAt: "", payload: listing })) : personalOpenListings;
@@ -119,8 +88,6 @@ export default function DomainWorkspace({ app }: { app: App }) {
   const auctionBidCount = app === "property-auctions" ? auctionOverview.simulatedBidCount : simulatedBids.length;
   const fieldOptions = (field: Field) => field.key === "shipmentId" ? shipments.map((item) => ({ value: item.id, label: item.title })) :
     field.key === "listingId" ? openListings.map((item) => ({ value: item.id, label: `${item.title} · reserve ₹${Number(item.payload.reservePrice).toLocaleString("en-IN")}` })) :
-    field.key === "symbol" && kind === "paper-order" ? watchlist.filter((item) => item.payload.exchange === values.exchange).map((item) => ({ value: item.payload.symbol, label: item.payload.symbol })) :
-    field.key === "exchange" && kind === "paper-order" ? [...new Set(watchlist.map((item) => item.payload.exchange))].map((value) => ({ value, label: value })) :
     (field.options || []).map((value) => ({ value, label: value }));
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setMessage("");
@@ -160,26 +127,14 @@ export default function DomainWorkspace({ app }: { app: App }) {
     return [];
   };
   const visible = records.filter((item) => `${item.title} ${item.kind} ${item.status}`.toLowerCase().includes(filter.toLowerCase()));
-  const holdings = useMemo(() => {
-    const map = new Map<string, { exchange: string; symbol: string; shares: number; cost: number }>();
-    records.filter((item) => item.kind === "paper-order").forEach((item) => { const { exchange, symbol, side, quantity, price } = item.payload;
-      const key = `${exchange}:${symbol}`; const current = map.get(key) || { exchange, symbol, shares: 0, cost: 0 };
-      current.shares += (side === "buy" ? 1 : -1) * Number(quantity); current.cost += (side === "buy" ? 1 : -1) * Number(quantity) * Number(price); map.set(key, current); });
-    return [...map.values()].map((item) => {
-      const reference = watchlist.find((row) => row.payload.exchange === item.exchange && row.payload.symbol === item.symbol);
-      const marketValue = item.shares * Number(reference?.payload.referencePrice || 0);
-      return { ...item, marketValue, paperPnl: marketValue - item.cost, priceAsOf: reference?.payload.priceAsOf || "" };
-    }).filter((item) => item.shares > 0);
-  }, [records]);
   return <div className="min-h-screen bg-white text-[#161616]"><WorkbenchHeader /><div className="flex"><AppSidebar /><main className="min-w-0 flex-1 space-y-5 bg-[#f8faff] p-6">
     <header><h1 className="text-2xl font-semibold">{config[app].title}</h1><p className="mt-2 text-sm text-[#525252]">{config[app].intro}</p></header>
     <div className="ibm-panel max-w-5xl border-l-4 border-amber-500 p-4 text-sm">{config[app].note}</div>
     {!signedIn ? <div className="ibm-panel p-5">Sign in to save and view this workspace. <Link href="/login" className="text-blue-700 underline">Open sign in</Link></div> : <>
-      {app === "stock-exchange" && <StockIntelligencePanel />}
       <section className="grid gap-5 xl:grid-cols-[minmax(300px,420px)_1fr]">
-        <form onSubmit={submit} className="ibm-panel grid content-start gap-3 p-5"><h2 className="font-semibold">{editing ? `Edit ${active.label.toLowerCase()}` : app === "stock-exchange" ? "Manual research, saved records & paper trading" : "Create a record"}</h2>
+        <form onSubmit={submit} className="ibm-panel grid content-start gap-3 p-5"><h2 className="font-semibold">{editing ? `Edit ${active.label.toLowerCase()}` : "Create a record"}</h2>
           <label className="text-sm">Record type<select className="mt-1 block w-full rounded border p-2" value={kind} disabled={!!editing} onChange={(event) => { setKind(event.target.value); setValues({ origin: "India", destination: "UAE", currency: "USD", exchange: "NSE", side: "buy", priceAsOf: today() }); }}>{kinds[app].map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
-          {active.fields.map((field) => <label key={field.key} className="text-sm">{field.label}{field.type === "textarea" ? <textarea className="mt-1 block min-h-20 w-full rounded border p-2" value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} /> : field.type === "select" ? <select required={field.required} className="mt-1 block w-full rounded border p-2" value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value, ...(field.key === "exchange" && kind === "paper-order" ? { symbol: "" } : {}) })}><option value="">Select</option>{fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input required={field.required} className="mt-1 block w-full rounded border p-2" type={field.type || "text"} min={field.type === "number" ? "0.01" : field.type === "date" && field.key === "closesOn" ? today() : undefined} step={field.type === "number" ? "any" : undefined} value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />}</label>)}
+          {active.fields.map((field) => <label key={field.key} className="text-sm">{field.label}{field.type === "textarea" ? <textarea className="mt-1 block min-h-20 w-full rounded border p-2" value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} /> : field.type === "select" ? <select required={field.required} className="mt-1 block w-full rounded border p-2" value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}><option value="">Select</option>{fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input required={field.required} className="mt-1 block w-full rounded border p-2" type={field.type || "text"} min={field.type === "number" ? "0.01" : field.type === "date" && field.key === "closesOn" ? today() : undefined} step={field.type === "number" ? "any" : undefined} value={values[field.key] || ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />}</label>)}
           <div className="flex gap-2"><button className="ibm-btn-primary px-4 py-2" disabled={busy}>{busy ? "Saving…" : editing ? "Save changes" : "Create"}</button>{editing && <button className="ibm-btn-secondary px-4 py-2" type="button" onClick={() => { setEditing(""); setValues({}); }}>Cancel</button>}</div>
           {app === "property-auctions" && kind === "listing" && values.valuation && <p className="rounded bg-[#edf5ff] p-3 text-sm">Listing-fee preview (0.25% of valuation): <strong>{inr(Number(values.valuation) * 0.0025)}</strong>. Calculation only; no payment is collected.</p>}
           {app === "property-auctions" && kind === "bid" && values.bidAmount && <p className="rounded bg-[#edf5ff] p-3 text-sm">Simulated 25% bid-deposit preview: <strong>{inr(Number(values.bidAmount) * 0.25)}</strong>. Calculation only; no deposit is collected.</p>}
@@ -190,7 +145,6 @@ export default function DomainWorkspace({ app }: { app: App }) {
           {app === "property-auctions" && <div className="ibm-panel p-5"><h2 className="font-semibold">Auction overview</h2><p className="mt-2 text-sm">Open listings: {openListings.length} · Simulated bids: {auctionBidCount}</p><p className="mt-2 text-sm">A listing opens only after an admin reviews seller authority. A bidder needs admin verification before placing a simulated bid.</p><div className="mt-3 space-y-1 text-sm">{openListings.map((listing) => <p key={listing.id}>{listing.title}: {Number(listing.payload.bidCount) || 0} bid(s), highest {Number(listing.payload.highestBid) ? inr(listing.payload.highestBid) : "none"}</p>)}</div></div>}
           {app === "property-auctions" && <div className="ibm-panel p-5"><h2 className="font-semibold">Approval dashboard</h2><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 text-sm"><p className="rounded bg-[#edf5ff] p-3"><strong>{openListings.length}</strong><br />Approved open properties</p><p className="rounded bg-[#fff4e5] p-3"><strong>{reviewListings.length}</strong><br />Pending listing approvals</p><p className="rounded bg-[#edf5ff] p-3"><strong>{verifiedBidders.length}</strong><br />Verified bidders</p><p className="rounded bg-[#edf5ff] p-3"><strong>{auctionBidCount}</strong><br />Simulated bids</p></div><p className="mt-3 text-sm">All fees and deposits are calculation previews only. No payments, custody, title transfer, or binding auction is enabled.</p><div className="mt-3 space-y-1 text-sm">{openListings.map((listing) => <p key={listing.id}>{listing.title}: {Number(listing.payload.bidCount) || 0} bid(s), highest {Number(listing.payload.highestBid) ? inr(listing.payload.highestBid) : "none"} · listing fee {inr(listing.payload.listingFee)}</p>)}</div></div>}
           {app === "property-auctions" && <div className="ibm-panel p-5"><h2 className="font-semibold">Private property files</h2><p className="mt-2 text-sm text-[#525252]">Upload property images (JPEG/PNG) and PDF/JPEG/PNG ownership documents (maximum 10 MB). Files are private to the seller and authorized admins; downloads use a temporary link.</p><div className="mt-3 space-y-3">{records.filter((item) => item.kind === "listing" && (item.mine || role === "admin")).map((listing) => <div key={listing.id} className="rounded border bg-white p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong>{listing.title}</strong><span>{Array.isArray(listing.payload.documents) ? listing.payload.documents.length : 0} file(s)</span></div>{Array.isArray(listing.payload.documents) && listing.payload.documents.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{listing.payload.documents.map((document: any) => <button key={document.id} type="button" className="ibm-btn-secondary px-3 py-1" onClick={() => openDocument(listing.id, document.id)}>Open {String(document.type).replaceAll("_", " ")}</button>)}</div>}{listing.mine && ["draft", "review", "changes_requested", "rejected"].includes(listing.status) && <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr_auto]"><select aria-label="Property file type" className="rounded border p-2" value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="property_image">Property image (JPEG/PNG)</option><option value="ownership_document">Ownership document</option><option value="sale_deed">Sale deed</option><option value="encumbrance_certificate">Encumbrance certificate</option><option value="authorization_letter">Authorization letter</option></select><input aria-label="Property file" className="rounded border p-2" type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setDocumentFile(event.target.files?.[0] || null)} /><button type="button" disabled={busy} className="ibm-btn-secondary px-3 py-1" onClick={() => uploadDocument(listing.id)}>Upload</button></div>}</div>)}</div></div>}
-          {app === "stock-exchange" && <div className="ibm-panel p-5"><h2 className="font-semibold">Paper portfolio simulation</h2>{holdings.length ? <div className="mt-2 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Symbol</th><th>Shares</th><th>Net paper cash spent</th><th>Value at manual price</th><th>Paper P&amp;L</th></tr></thead><tbody>{holdings.map((item) => <tr key={`${item.exchange}:${item.symbol}`}><td>{item.exchange}:{item.symbol}<span className="block text-xs text-[#525252]">Price date {item.priceAsOf}</span></td><td>{item.shares}</td><td>{item.cost.toLocaleString("en-IN")}</td><td>{item.marketValue.toLocaleString("en-IN")}</td><td>{item.paperPnl.toLocaleString("en-IN")}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm">No paper positions yet. Add a symbol, then record a paper buy.</p>}</div>}
           <div className="ibm-panel p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">Records ({visible.length})</h2><input aria-label="Filter records" placeholder="Filter records" className="rounded border p-2 text-sm" value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
             <div className="mt-3 max-h-[850px] space-y-3 overflow-y-auto">{visible.length ? visible.map((item) => <article key={item.id} className="rounded border bg-white p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong>{item.title}</strong><span className="rounded bg-[#edf5ff] px-2 py-1">{item.kind} · {item.status}</span></div><dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">{Object.entries(item.payload).filter(([, value]) => value !== null && value !== "").map(([key, value]) => <div key={key}><dt className="text-xs text-[#525252]">{key.replace(/([A-Z])/g, " $1")}</dt><dd className="break-words">{displayRecordValue(key, value)}</dd></div>)}</dl><p className="mt-2 text-xs text-[#525252]">Created {item.createdAt.slice(0, 10)}</p><div className="mt-3 flex flex-wrap gap-2">{item.mine && item.status === "draft" && ["shipment", "listing", "instrument"].includes(item.kind) && <button className="ibm-btn-secondary px-3 py-1" onClick={() => { setKind(item.kind); setValues(Object.fromEntries(Object.entries(item.payload).map(([key, value]) => [key, String(value ?? "")] ))); setEditing(item.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Edit</button>}{actions(item).map(([label, status]) => <button key={status} disabled={busy} className="ibm-btn-secondary px-3 py-1" onClick={() => setStatus(item.id, status)}>{label}</button>)}</div></article>) : <p className="text-sm text-[#525252]">No records yet.</p>}</div>
           </div>

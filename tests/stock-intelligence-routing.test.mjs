@@ -9,12 +9,25 @@ const intelligenceRoute = fs.readFileSync(new URL("../frontend/app/api/prism/app
 const nextConfig = fs.readFileSync(new URL("../next.config.js", import.meta.url), "utf8");
 
 test("Stock Intelligence has a canonical workspace route and Cloud Run-safe internal rewrite", () => {
-  assert.match(canonical, /DomainWorkspace app="stock-exchange"/);
-  assert.match(legacy, /DomainWorkspace app="stock-exchange"/);
+  assert.match(canonical, /StockIntelligenceWorkspace/);
+  assert.match(legacy, /StockIntelligenceWorkspace/);
   assert.match(nextConfig, /source: "\/admin\/prism\/stock-intelligence"/);
   assert.match(nextConfig, /destination: "\/admin\/prism\/stock-exchange"/);
   assert.match(sidebar, /label: "Stock Intelligence"/);
   assert.match(sidebar, /href: "\/admin\/prism\/stock-intelligence"/);
+});
+
+test("Stock Intelligence does not render manual records or paper trading", () => {
+  const workspace = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligenceWorkspace.tsx", import.meta.url), "utf8");
+  const panel = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligencePanel.tsx", import.meta.url), "utf8");
+  const stockPage = `${workspace}\n${panel}`;
+  for (const label of ["Manual research, saved records & paper trading", "Paper portfolio simulation", "Filter records", "No paper positions yet.", "No records yet."]) {
+    assert.doesNotMatch(stockPage, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(panel, /rankingPanel\("NSE", nseRanking\)/);
+  assert.match(panel, /rankingPanel\("BSE", bseRanking\)/);
+  assert.match(panel, /Historical timeframe/);
+  assert.match(panel, /Forecast horizon/);
 });
 
 test("Stock Intelligence API remains authenticated, tenant-scoped and non-cacheable", () => {

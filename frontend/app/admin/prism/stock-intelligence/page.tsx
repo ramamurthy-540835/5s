@@ -1,5 +1,5 @@
-import DomainWorkspace from "@/components/apps/DomainWorkspace";
+import StockIntelligenceWorkspace from "@/components/apps/StockIntelligenceWorkspace";
 
 export default function StockIntelligencePage() {
-  return <DomainWorkspace app="stock-exchange" />;
+  return <StockIntelligenceWorkspace />;
 }
