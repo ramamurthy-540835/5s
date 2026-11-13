@@ -26,8 +26,16 @@ test("Stock Intelligence does not render manual records or paper trading", () =>
   }
   assert.match(panel, /rankingPanel\("NSE", nseRanking\)/);
   assert.match(panel, /rankingPanel\("BSE", bseRanking\)/);
+  assert.match(panel, /PublicMarketWidget/);
   assert.match(panel, /Historical timeframe/);
   assert.match(panel, /Forecast horizon/);
+});
+
+test("demo public market widget is display-only", () => {
+  const widget = fs.readFileSync(new URL("../frontend/components/apps/PublicMarketWidget.tsx", import.meta.url), "utf8");
+  assert.match(widget, /s3\.tradingview\.com\/external-embedding/);
+  assert.match(widget, /PRISM does not store, redistribute, rank, or forecast/);
+  assert.doesNotMatch(widget, /fetch\(/);
 });
 
 test("Stock Intelligence API remains authenticated, tenant-scoped and non-cacheable", () => {

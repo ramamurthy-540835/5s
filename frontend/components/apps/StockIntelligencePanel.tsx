@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import PublicMarketWidget from "@/components/apps/PublicMarketWidget";
 
 type Instrument = { exchange: string; symbol: string; instrumentId: string; companyName?: string | null; aliases?: string[]; isin?: string | null; tradingStatus?: string; sourceUrl?: string };
 type Report = any;
@@ -19,6 +20,7 @@ const displayName = (item: Instrument) => item.companyName || item.symbol;
 export default function StockIntelligencePanel() {
   const [symbols, setSymbols] = useState<Instrument[]>([]);
   const [report, setReport] = useState<Report | null>(null);
+  const [selectedInstrument, setSelectedInstrument] = useState<Instrument | null>(null);
   const [frame, setFrame] = useState("1Y");
   const [horizon, setHorizon] = useState("3M");
   const [message, setMessage] = useState("");
@@ -70,6 +72,7 @@ export default function StockIntelligencePanel() {
 
   const choose = (item: Instrument) => {
     setQuery(""); setMatches([]); setNextCursor(null); setActiveMatch(-1);
+    setSelectedInstrument(item);
     window.history.replaceState(null, "", `/admin/prism/stock-intelligence?instrument=${encodeURIComponent(item.instrumentId)}`);
     void load(item.instrumentId);
   };
@@ -89,8 +92,9 @@ export default function StockIntelligencePanel() {
     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">Exchange rankings</h3><label className="text-sm">Mode <select aria-label="Stock ranking mode" className="ml-2 rounded border p-2" value={rankingMode} onChange={(event) => { setRankingMode(event.target.value); void loadRankings(event.target.value); }}>{rankingModes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
     <div className="grid gap-4 lg:grid-cols-2">{rankingPanel("NSE", nseRanking)}{rankingPanel("BSE", bseRanking)}</div>
     {message && <p role="status" className="text-sm text-red-700">{message}</p>}
-    {!report ? <p className="rounded border bg-white p-4 text-sm text-[#525252]">Search the India reference catalogue to begin. No quote, ranking, fundamental, news, or forecast is fabricated when a provider or sourced observations are unavailable.</p> : <>
-      <div className="rounded border bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">{report.symbol} · {report.exchange}</h3><p className="text-sm text-[#525252]">Last sourced close: {inr(report.timeframeAnalysis?.[0]?.price?.close)} · Data confidence: {report.dataConfidence} · Risk: {report.riskLevel}</p></div><button type="button" className="ibm-btn-secondary px-3 py-2" onClick={() => { setReport(null); window.history.replaceState(null, "", "/admin/prism/stock-intelligence"); }}>Back to search</button></div></div>
+    {selectedInstrument && <PublicMarketWidget exchange={selectedInstrument.exchange} symbol={selectedInstrument.symbol} companyName={selectedInstrument.companyName} />}
+    {!report ? <p className="rounded border bg-white p-4 text-sm text-[#525252]">Search the India reference catalogue to begin. The demo chart is a third-party display only; no quote, ranking, fundamental, news, or forecast is fabricated when a provider or sourced observations are unavailable.</p> : <>
+      <div className="rounded border bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">{report.symbol} · {report.exchange}</h3><p className="text-sm text-[#525252]">Last sourced close: {inr(report.timeframeAnalysis?.[0]?.price?.close)} · Data confidence: {report.dataConfidence} · Risk: {report.riskLevel}</p></div><button type="button" className="ibm-btn-secondary px-3 py-2" onClick={() => { setReport(null); setSelectedInstrument(null); window.history.replaceState(null, "", "/admin/prism/stock-intelligence"); }}>Back to search</button></div></div>
       <div className="flex flex-wrap gap-2" aria-label="Historical timeframe">{frames.map((item) => <button key={item} type="button" className={frame === item ? "ibm-btn-primary px-3 py-1" : "ibm-btn-secondary px-3 py-1"} onClick={() => setFrame(item)}>{item === "1D" ? "Today" : item}</button>)}</div>
       <div className="rounded border bg-white p-4 text-sm"><h3 className="font-semibold">{frame === "1D" ? "Today" : frame} historical analysis</h3>{timeframe?.available ? <><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><p>Price change: <strong>{pct(timeframe.price.changePct)}</strong></p><p>Volatility: <strong>{pct(timeframe.price.volatilityAnnualizedPct)}</strong></p><p>Max drawdown: <strong>{pct(timeframe.price.maxDrawdownPct)}</strong></p><p>Nifty relative strength: <strong>{pct(timeframe.relativeStrength.nifty50Pct)}</strong></p><p>Sector relative strength: <strong>{pct(timeframe.relativeStrength.sectorPct)}</strong></p><p>Abnormal volume: <strong>{timeframe.volume.abnormal === null ? "—" : timeframe.volume.abnormal ? "Detected" : "No"}</strong></p><p>RSI (14): <strong>{timeframe.technical.rsi14?.toFixed?.(1) ?? "—"}</strong></p><p>Support / resistance: <strong>{timeframe.technical.support?.toFixed?.(2) ?? "—"} / {timeframe.technical.resistance?.toFixed?.(2) ?? "—"}</strong></p></div><p className="mt-3 text-[#525252]">{timeframe.interpretation}</p></> : <p className="mt-2 text-[#525252]">{timeframe?.interpretation || "Insufficient sourced observations for this timeframe."}</p>}<p className="mt-3 text-xs text-[#525252]">Chart/OHLC export requires an authorized provider and appropriate license. This view does not fill market holidays or invent intraday bars.</p></div>
       <div className="flex flex-wrap gap-2" aria-label="Forecast horizon">{horizons.map((item) => <button key={item} type="button" className={horizon === item ? "ibm-btn-primary px-3 py-1" : "ibm-btn-secondary px-3 py-1"} onClick={() => setHorizon(item)}>{item}</button>)}</div>
