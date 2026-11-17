@@ -7,7 +7,7 @@ export type SourceClass = "verified_filing" | "company_statement" | "analyst_opi
 export type MarketObservation = { symbol: string; exchange: string; asOf: string; close: number; high?: number; low?: number; volume?: number; niftyClose?: number; sectorClose?: number; indiaVix?: number; usdInr?: number; brent?: number; repoRate?: number; inflation?: number; fiiNetFlow?: number; sourceUrl: string; sourceClass: SourceClass };
 export type FundamentalSnapshot = { symbol: string; exchange: string; asOf: string; fiscalPeriod: string; revenue?: number; netProfit?: number; ebitdaMargin?: number; eps?: number; roe?: number; roce?: number; debtToEquity?: number; freeCashFlow?: number; pe?: number; pb?: number; evEbitda?: number; dividendYield?: number; sourceUrl: string; sourceClass: SourceClass };
 export type ResearchItem = { symbol: string; exchange: string; publishedAt: string; title: string; summary: string; sourceUrl: string; sourceClass: SourceClass; materiality: "low" | "medium" | "high"; conflicted?: boolean };
-export type Factor = { id: string; rawValue: number | null; normalizedScore: number; direction: "positive" | "negative" | "neutral"; weight: number; confidence: "high" | "medium" | "low"; freshness: "fresh" | "stale" | "missing"; availability: "available" | "unavailable"; source: string[]; explanation: string };
+export type Factor = { id: string; rawValue: number | null; normalizedScore: number | null; direction: "positive" | "negative" | "neutral" | "unavailable"; weight: number; confidence: "high" | "medium" | "low"; freshness: "fresh" | "stale" | "missing"; availability: "available" | "unavailable"; source: string[]; explanation: string };
 type Timeframe = "3Y" | "1Y" | "6M" | "3M" | "1M" | "1W" | "1D";
 type Horizon = "1W" | "1M" | "3M" | "6M" | "12M";
 const DAYS: Record<Timeframe, number> = { "3Y": 1095, "1Y": 365, "6M": 182, "3M": 91, "1M": 30, "1W": 7, "1D": 1 };
@@ -19,7 +19,7 @@ const std = (values: number[]) => values.length > 1 ? Math.sqrt(mean(values.map(
 const ema = (values: number[], period: number) => values.reduce((previous, value, index) => index ? value * (2 / (period + 1)) + previous * (1 - 2 / (period + 1)) : value, 0);
 const asDate = (value: string) => new Date(`${value}T00:00:00Z`).getTime();
 const dateCutoff = (latest: string, days: number) => asDate(latest) - days * 86_400_000;
-const classify = (value: number | null): "positive" | "negative" | "neutral" => value === null || Math.abs(value) < 0.05 ? "neutral" : value > 0 ? "positive" : "negative";
+const classify = (value: number | null): "positive" | "negative" | "neutral" | "unavailable" => value === null ? "unavailable" : Math.abs(value) < 0.05 ? "neutral" : value > 0 ? "positive" : "negative";
 const confidence = (count: number): "high" | "medium" | "low" => count >= 180 ? "high" : count >= 30 ? "medium" : "low";
 
 export function normalizeScenarioProbabilities(values: number[]) {
@@ -72,7 +72,9 @@ export function aggregateTimeframes(observations: MarketObservation[]) {
 function latestFundamental(rows: FundamentalSnapshot[]) { return [...rows].sort((a, b) => asDate(a.asOf) - asDate(b.asOf)).at(-1); }
 function sources(observations: MarketObservation[], fundamentals: FundamentalSnapshot[], research: ResearchItem[]) { return [...new Set([...observations, ...fundamentals, ...research].map((row) => row.sourceUrl).filter(Boolean))].slice(0, 30); }
 function factor(id: string, rawValue: number | null, weight: number, explanation: string, source: string[], sampleSize: number): Factor {
-  const normalizedScore = rawValue === null ? 0 : clamp(rawValue / 20, -1, 1);
+  // A missing input is not neutral evidence. Keeping this null prevents API
+  // consumers from accidentally charting it as a real zero-valued score.
+  const normalizedScore = rawValue === null ? null : clamp(rawValue / 20, -1, 1);
   return { id, rawValue, normalizedScore, direction: classify(normalizedScore), weight, confidence: rawValue === null ? "low" : confidence(sampleSize), freshness: rawValue === null ? "missing" : "fresh", availability: rawValue === null ? "unavailable" : "available", source, explanation };
 }
 
@@ -111,8 +113,12 @@ export function buildStockIntelligence(input: { symbol: string; exchange: string
   const observations = input.observations.filter((row) => row.symbol === input.symbol && row.exchange === input.exchange);
   const fundamentals = input.fundamentals.filter((row) => row.symbol === input.symbol && row.exchange === input.exchange);
   const research = input.research.filter((row) => row.symbol === input.symbol && row.exchange === input.exchange);
-  const factors = scoreFactors(observations, fundamentals, research); const score = factors.reduce((total, item) => total + item.normalizedScore * item.weight, 0);
-  return { symbol: input.symbol, exchange: input.exchange, generatedAt: new Date().toISOString(), modelVersion: input.modelVersion || "stock-intelligence-v1", disclaimer: "Not investment advice. Predictions are probabilistic and may be wrong.", dataConfidence: confidence(observations.length), riskLevel: observations.length < 30 ? "high" : Math.abs(score) > .45 ? "medium" : "high", timeframeAnalysis: aggregateTimeframes(observations), factors, scenarios: generateScenarios(observations), research: research.map(({ title, publishedAt, sourceUrl, sourceClass, materiality, conflicted }) => ({ title, publishedAt, sourceUrl, sourceClass, materiality, conflicted: Boolean(conflicted) })), explainability: { whySelected: factors.filter((item) => item.normalizedScore > .1).slice(0, 3).map((item) => item.explanation), negativeFactors: factors.filter((item) => item.normalizedScore < -.1).slice(0, 3).map((item) => item.explanation), whatToMonitor: ["Results and exchange filings", "RBI policy, USD/INR, crude and FII/FPI flows", "Sector benchmark and liquidity"], limitations: ["No live market-data provider is connected.", ...(observations.length < 30 ? ["Historical observations are insufficient for a scenario forecast."] : []), ...(fundamentals.length ? [] : ["No sourced fundamentals are available."]), ...(research.length ? [] : ["No sourced filings or research items are available."]) ] }, sources: sources(observations, fundamentals, research) };
+  const factors = scoreFactors(observations, fundamentals, research);
+  const availableFactors = factors.filter((item) => item.normalizedScore !== null);
+  const availableWeight = availableFactors.reduce((total, item) => total + item.weight, 0);
+  const score = availableWeight ? availableFactors.reduce((total, item) => total + (item.normalizedScore as number) * (item.weight / availableWeight), 0) : null;
+  const evidenceCoveragePct = Number((availableWeight * 100).toFixed(1));
+  return { symbol: input.symbol, exchange: input.exchange, generatedAt: new Date().toISOString(), modelVersion: input.modelVersion || "stock-intelligence-v1", disclaimer: "Not investment advice. Predictions are probabilistic and may be wrong.", dataConfidence: confidence(observations.length), riskLevel: observations.length < 30 || score === null ? "high" : Math.abs(score) > .45 ? "medium" : "high", timeframeAnalysis: aggregateTimeframes(observations), factors, scenarios: generateScenarios(observations), research: research.map(({ title, publishedAt, sourceUrl, sourceClass, materiality, conflicted }) => ({ title, publishedAt, sourceUrl, sourceClass, materiality, conflicted: Boolean(conflicted) })), explainability: { evidenceCoveragePct, weightRedistributed: availableWeight > 0 && availableWeight < 1, whySelected: factors.filter((item) => item.normalizedScore !== null && item.normalizedScore > .1).slice(0, 3).map((item) => item.explanation), negativeFactors: factors.filter((item) => item.normalizedScore !== null && item.normalizedScore < -.1).slice(0, 3).map((item) => item.explanation), whatToMonitor: ["Results and exchange filings", "RBI policy, USD/INR, crude and FII/FPI flows", "Sector benchmark and liquidity"], limitations: ["No live market-data provider is connected.", ...(availableWeight && availableWeight < 1 ? ["Only available factor weights were normalized; unavailable evidence was not treated as neutral."] : []), ...(observations.length < 30 ? ["Historical observations are insufficient for a scenario forecast."] : []), ...(fundamentals.length ? [] : ["No sourced fundamentals are available."]), ...(research.length ? [] : ["No sourced filings or research items are available."]) ] }, sources: sources(observations, fundamentals, research) };
 }
 
 export function pointInTimeBacktest(observations: MarketObservation[], horizonDays: number) {

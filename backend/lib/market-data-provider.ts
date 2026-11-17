@@ -6,7 +6,7 @@
  */
 export type Exchange = "NSE" | "BSE";
 export type DataClassification = "live" | "delayed" | "EOD" | "unavailable";
-export type ProviderStatus = { configured: boolean; provider: string | null; reason: string | null; classification: DataClassification };
+export type ProviderStatus = { configured: boolean; provider: string | null; reason: string | null; classification: DataClassification; capabilities: ProviderCapability[]; health: "unconfigured" | "unregistered" | "healthy" | "circuit_open" };
 export type SourceMeta = { sourceUrl: string; observedAt: string; fetchedAt: string; classification: DataClassification; provider: string };
 export type InstrumentMasterRecord = { instrumentId: string; exchange: Exchange; symbol: string; companyName: string; aliases: string[]; isin?: string; tradingStatus: "active" | "suspended" | "delisted"; syncedAt: string };
 export type OhlcvBar = SourceMeta & { open: number; high: number; low: number; close: number; volume?: number; adjusted: boolean };
@@ -66,9 +66,41 @@ export async function withRetry<T>(load: () => Promise<T>, attempts = 3): Promis
   throw lastError instanceof Error ? lastError : new Error("Market-data provider request failed");
 }
 
+/**
+ * Executes a capability call with a bounded timeout, retry policy, cache and
+ * circuit-breaker accounting. Adapters own endpoint-specific authentication
+ * and normalization; callers never receive provider credentials.
+ */
+export async function executeProviderRequest<T>(input: { provider?: string; capability: ProviderCapability; cacheKey: string; ttlMs: number; timeoutMs?: number; load: (provider: IndiaMarketDataProvider) => Promise<T> }): Promise<T> {
+  const provider = marketDataProviders.get(input.provider);
+  if (!provider.capabilities.includes(input.capability)) throw new ProviderUnavailableError(`${provider.name} is not entitled for ${input.capability}.`);
+  const timeoutMs = Math.max(250, Math.min(input.timeoutMs ?? 8_000, 30_000));
+  return withProviderCache(`${provider.name}:${input.cacheKey}`, input.ttlMs, async () => {
+    try {
+      const value = await withRetry(async () => new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new ProviderUnavailableError("Market-data provider request timed out.")), timeoutMs);
+        input.load(provider).then((result) => { clearTimeout(timer); resolve(result); }, (error) => { clearTimeout(timer); reject(error); });
+      }));
+      marketDataProviders.recordSuccess(provider.name);
+      return value;
+    } catch (error) {
+      marketDataProviders.recordFailure(provider.name);
+      throw error;
+    }
+  });
+}
+
 export function marketDataProviderStatus(): ProviderStatus {
   const provider = process.env.MARKET_DATA_PROVIDER?.trim() || null;
-  const credentialPresent = Boolean(process.env.MARKET_DATA_API_KEY || process.env.MARKET_DATA_BASE_URL);
-  if (!provider || !credentialPresent) return { configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." };
-  return { configured: false, provider, classification: "unavailable", reason: "Provider configuration is present but no approved provider adapter has been registered." };
+  const credentialPresent = Boolean(process.env.MARKET_DATA_API_KEY);
+  const baseUrlPresent = Boolean(process.env.MARKET_DATA_BASE_URL);
+  if (!provider || !credentialPresent || !baseUrlPresent) return { configured: false, provider: null, classification: "unavailable", capabilities: [], health: "unconfigured", reason: "No approved licensed market-data provider is configured." };
+  try {
+    const active = marketDataProviders.get(provider);
+    const health = marketDataProviders.health().find((item) => item.provider === active.name);
+    if (health?.state === "open") return { configured: true, provider: active.name, classification: "unavailable", capabilities: active.capabilities, health: "circuit_open", reason: health.reason || "Provider circuit breaker is open." };
+    return { configured: true, provider: active.name, classification: active.classification, capabilities: active.capabilities, health: "healthy", reason: null };
+  } catch {
+    return { configured: false, provider, classification: "unavailable", capabilities: [], health: "unregistered", reason: "Provider configuration is present but no approved provider adapter has been registered." };
+  }
 }

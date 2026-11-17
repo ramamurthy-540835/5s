@@ -43,6 +43,9 @@ test("factor report retains source URLs and flags missing fundamentals as a limi
   assert.equal(report.factors.length, 12);
   assert.ok(report.sources.includes("https://example.test/market"));
   assert.ok(report.explainability.limitations.some((item) => item.includes("No sourced fundamentals")));
+  assert.equal(report.factors.find((item) => item.id === "fundamentals").normalizedScore, null);
+  assert.ok(report.explainability.evidenceCoveragePct < 100);
+  assert.equal(report.explainability.weightRedistributed, true);
 });
 
 test("point-in-time backtest only uses observations at or before each as-of date", () => {
