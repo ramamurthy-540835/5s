@@ -61,6 +61,15 @@ test("factor report retains source URLs and flags missing fundamentals as a limi
   assert.equal(report.factors.find((item) => item.id === "fundamentals").normalizedScore, null);
   assert.ok(report.explainability.evidenceCoveragePct < 100);
   assert.equal(report.explainability.weightRedistributed, true);
+  assert.equal(report.riskAssessment.investmentRisk, "not_assessable");
+  assert.equal(report.riskAssessment.dataConfidence, "medium");
+});
+
+test("missing evidence does not become a high investment-risk classification", () => {
+  const risk = intelligence.assessRisk({ observations: [], fundamentals: [], research: [], evidenceCoveragePct: 0 });
+  assert.equal(risk.dataAvailability, "missing");
+  assert.equal(risk.investmentRisk, "not_assessable");
+  assert.equal(risk.businessRisk, "not_assessable");
 });
 
 test("point-in-time backtest only uses observations at or before each as-of date", () => {

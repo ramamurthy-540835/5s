@@ -24,11 +24,20 @@ test("Stock Intelligence does not render manual records or paper trading", () =>
   for (const label of ["Manual research, saved records & paper trading", "Paper portfolio simulation", "Filter records", "No paper positions yet.", "No records yet."]) {
     assert.doesNotMatch(stockPage, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  assert.match(panel, /rankingPanel\("NSE", nseRanking\)/);
-  assert.match(panel, /rankingPanel\("BSE", bseRanking\)/);
+  assert.match(panel, /rankPanel\("NSE", nse\)/);
+  assert.match(panel, /rankPanel\("BSE", bse\)/);
   assert.match(panel, /PublicMarketWidget/);
-  assert.match(panel, /Historical timeframe/);
-  assert.match(panel, /Forecast horizon/);
+  assert.match(panel, /Technical Analysis/);
+  assert.match(panel, /Future Scenarios/);
+  assert.match(panel, /Market data status/);
+});
+
+test("company dashboard has one data status panel and uses not-assessable risk wording", () => {
+  const panel = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligencePanel.tsx", import.meta.url), "utf8");
+  assert.equal((panel.match(/aria-label="Market data status"/g) || []).length, 1);
+  assert.match(panel, /Not Assessable/);
+  assert.match(panel, /Company research sections/);
+  assert.doesNotMatch(panel, /Paper portfolio simulation/);
 });
 
 test("demo public market widget is display-only", () => {
@@ -54,4 +63,18 @@ test("search-first V3 API enforces its minimum query and keeps exchange rankings
   assert.match(intelligenceRoute, /exchange: exchange \|\| null/);
   assert.match(intelligenceRoute, /top-gainers/);
   assert.match(intelligenceRoute, /authorized market-data provider/);
+});
+
+test("provider diagnostics are administrator-only and do not serialize credentials", () => {
+  const route = fs.readFileSync(new URL("../frontend/app/api/prism/stock-intelligence/provider/route.ts", import.meta.url), "utf8");
+  assert.match(route, /user\.role !== "admin"/);
+  assert.match(route, /secretReferenceConfigured/);
+  assert.match(route, /body\.action !== "test"/);
+  assert.doesNotMatch(route, /MARKET_DATA_API_KEY:\s*process\.env/);
+});
+
+test("native price chart is source-contract-only and supplies interactive market controls", () => {
+  const nativeChart = fs.readFileSync(new URL("../frontend/components/apps/NativePriceChart.tsx", import.meta.url), "utf8");
+  for (const expected of ["candles", "line", "area", "ResizeObserver", "Full screen", "onMouseMove", "volume"]) assert.match(nativeChart, new RegExp(expected));
+  assert.doesNotMatch(nativeChart, /tradingview|widgetdata|fetch\s*\(/i);
 });

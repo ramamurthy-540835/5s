@@ -9,6 +9,7 @@ import { appOrgId } from "@backend/lib/app-tenancy";
 import { buildStockIntelligence, rankIndiaStocks, type FundamentalSnapshot, type MarketObservation, type RankingMode, type ResearchItem } from "@backend/lib/stock-intelligence";
 import { marketDataProviderStatus } from "@backend/lib/market-data-provider";
 import { INDIA_REFERENCE_CATALOGUE_NOTICE, indiaReferenceCatalogue } from "@backend/lib/india-reference-catalog";
+import { normalizeChartSeries } from "@backend/lib/stock-market-analytics";
 
 type Row = { id: string; owner_id: string; kind: AppKind; status: string; title: string; payload_json: string; created_at: unknown; updated_at: unknown };
 type AuctionOverviewListing = { id: string; title: string; reservePrice: number; closesOn: string; listingFee: number; bidCount: number; highestBid: number };
@@ -113,7 +114,8 @@ export async function GET(req: Request, { params }: { params: { app: string } })
         providerStatus, limitation: providerStatus.configured ? "Rankings use eligible sourced workspace records until the provider ingestion job is enabled." : "No licensed market-data provider is configured. Results use only your sourced workspace records." }, { headers: { "Cache-Control": "no-store" } });
     }
     if (!selected) return NextResponse.json({ symbols: [], report: null, disclaimer: "For research and education only. Not investment advice. Forecasts are uncertain; losses are possible. No broker execution is connected." }, { headers: { "Cache-Control": "no-store" } });
-    return NextResponse.json({ symbols, providerStatus, catalogueNotice: INDIA_REFERENCE_CATALOGUE_NOTICE, report: buildStockIntelligence({ ...selected, observations, fundamentals, research }) }, { headers: { "Cache-Control": "no-store" } });
+    const selectedObservations = observations.filter((row) => row.symbol === selected.symbol && row.exchange === selected.exchange);
+    return NextResponse.json({ symbols, providerStatus, catalogueNotice: INDIA_REFERENCE_CATALOGUE_NOTICE, chartSeries: normalizeChartSeries(selectedObservations), report: buildStockIntelligence({ ...selected, observations, fundamentals, research }) }, { headers: { "Cache-Control": "no-store" } });
   }
   const personalRecords = app === "stock-exchange" || (app === "property-auctions" && user.role !== "admin");
   const rows = await queryBigQuery<Row>(`SELECT id,owner_id,kind,status,title,payload_json,created_at,updated_at FROM ${table}

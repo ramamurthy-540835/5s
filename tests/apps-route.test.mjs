@@ -9,6 +9,12 @@ new Function("exports", "require", ts.transpileModule(validatorSource, { compile
 const intelligenceSource = fs.readFileSync(new URL("../backend/lib/stock-intelligence.ts", import.meta.url), "utf8");
 const intelligence = {};
 new Function("exports", "require", ts.transpileModule(intelligenceSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(intelligence, () => {});
+const analyticsSource = fs.readFileSync(new URL("../backend/lib/stock-market-analytics.ts", import.meta.url), "utf8");
+const analytics = {};
+new Function("exports", "require", ts.transpileModule(analyticsSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(analytics, (name) => {
+  if (name === "./stock-intelligence") return intelligence;
+  throw new Error(name);
+});
 const routeSource = fs.readFileSync(new URL("../frontend/app/api/prism/apps/[app]/route.ts", import.meta.url), "utf8");
 const route = {};
 const writes = [];
@@ -28,6 +34,7 @@ new Function("exports", "require", ts.transpileModule(routeSource, { compilerOpt
   } };
   if (name === "@backend/lib/app-records") return validator;
   if (name === "@backend/lib/stock-intelligence") return intelligence;
+  if (name === "@backend/lib/stock-market-analytics") return analytics;
   if (name === "@backend/lib/market-data-provider") return { marketDataProviderStatus: () => ({ configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." }) };
   if (name === "@backend/lib/india-reference-catalog") return { indiaReferenceCatalogue: [], INDIA_REFERENCE_CATALOGUE_NOTICE: "Reference catalogue unavailable in this isolated route test." };
   if (name === "@backend/lib/app-tenancy") return {
@@ -37,6 +44,18 @@ new Function("exports", "require", ts.transpileModule(routeSource, { compilerOpt
 });
 const request = (body) => ({ json: async () => body });
 const getRequest = (url = "https://app.test/api/prism/apps/property-auctions") => ({ url });
+
+test("Stock Intelligence route resolves the normalized chart-series contract", () => {
+  assert.equal(typeof analytics.normalizeChartSeries, "function");
+  assert.match(routeSource, /@backend\/lib\/stock-market-analytics/);
+  assert.match(routeSource, /chartSeries:\s*normalizeChartSeries\(selectedObservations\)/);
+  const chartSeries = analytics.normalizeChartSeries([
+    { symbol: "TATACOMM", exchange: "NSE", asOf: "2026-01-02", close: 100, high: 104, low: 98, volume: 1000, sourceUrl: "https://source.example/one", sourceClass: "verified_filing" },
+    { symbol: "TATACOMM", exchange: "NSE", asOf: "2026-01-02", close: 999, sourceUrl: "https://source.example/duplicate", sourceClass: "verified_filing" },
+    { symbol: "TATACOMM", exchange: "NSE", asOf: "invalid", close: 0, sourceUrl: "https://source.example/invalid", sourceClass: "verified_filing" },
+  ]);
+  assert.deepEqual(chartSeries, [{ time: "2026-01-02", open: 100, high: 104, low: 98, close: 100, volume: 1000 }]);
+});
 
 test("anonymous users cannot create application records", async () => {
   user = null; writes.length = 0;
