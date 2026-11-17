@@ -50,6 +50,38 @@ function rsi(rows: MarketObservation[]) {
   return losses === 0 ? 100 : 100 - 100 / (1 + gains / losses);
 }
 
+const last = (values: number[]) => values.length ? values.at(-1)! : null;
+const sma = (values: number[], period: number) => values.length >= period ? mean(values.slice(-period)) : null;
+const emaValue = (values: number[], period: number) => values.length >= period ? ema(values.slice(-period), period) : null;
+
+/** Deterministic indicators. Null means the provider supplied insufficient data. */
+export function calculateTechnicalIndicators(observations: MarketObservation[]) {
+  const rows = [...observations].filter((row) => row.close > 0 && !Number.isNaN(asDate(row.asOf))).sort((a, b) => asDate(a.asOf) - asDate(b.asOf));
+  const closes = rows.map((row) => row.close); const volumes = rows.map((row) => safeNumber(row.volume));
+  const ema12 = emaValue(closes, 12); const ema26 = emaValue(closes, 26); const macd = ema12 === null || ema26 === null ? null : ema12 - ema26;
+  const macdSeries = closes.length >= 34 ? closes.slice(25).map((_, index) => {
+    const sample = closes.slice(0, index + 26); return emaValue(sample, 12)! - emaValue(sample, 26)!;
+  }) : [];
+  const macdSignal = emaValue(macdSeries, 9);
+  const window20 = closes.slice(-20); const average20 = sma(closes, 20); const deviation20 = window20.length === 20 ? std(window20) : null;
+  const highLowRows = rows.filter((row) => safeNumber(row.high) !== undefined && safeNumber(row.low) !== undefined);
+  const trueRanges = highLowRows.slice(1).map((row, index) => Math.max((row.high as number) - (row.low as number), Math.abs((row.high as number) - highLowRows[index].close), Math.abs((row.low as number) - highLowRows[index].close)));
+  const recent14 = highLowRows.slice(-14); const highest14 = recent14.length === 14 ? Math.max(...recent14.map((row) => row.high as number)) : null; const lowest14 = recent14.length === 14 ? Math.min(...recent14.map((row) => row.low as number)) : null;
+  let obv = 0;
+  for (let index = 1; index < rows.length; index += 1) { const volume = volumes[index]; if (volume === undefined) continue; obv += rows[index].close > rows[index - 1].close ? volume : rows[index].close < rows[index - 1].close ? -volume : 0; }
+  const latest = last(closes); const prior = closes.at(-15);
+  return {
+    observations: rows.length, sma20: sma(closes, 20), sma50: sma(closes, 50), sma100: sma(closes, 100), sma200: sma(closes, 200), ema9: emaValue(closes, 9), ema12, ema26,
+    rsi14: rsi(rows), macd, macdSignal, macdHistogram: macd === null || macdSignal === null ? null : macd - macdSignal,
+    bollinger: average20 === null || deviation20 === null ? null : { middle: average20, upper: average20 + 2 * deviation20, lower: average20 - 2 * deviation20 },
+    atr14: trueRanges.length >= 14 ? mean(trueRanges.slice(-14)) : null,
+    stochastic14: latest === null || highest14 === null || lowest14 === null || highest14 === lowest14 ? null : ((latest - lowest14) / (highest14 - lowest14)) * 100,
+    obv: volumes.some((value) => value !== undefined) ? obv : null,
+    momentum14: latest === null || prior === undefined ? null : latest - prior,
+    rateOfChange14Pct: latest === null || prior === undefined || prior === 0 ? null : ((latest / prior) - 1) * 100,
+  };
+}
+
 export function aggregateTimeframes(observations: MarketObservation[]) {
   const sorted = [...observations].filter((row) => row.close > 0 && !Number.isNaN(asDate(row.asOf))).sort((a, b) => asDate(a.asOf) - asDate(b.asOf));
   const latest = sorted.at(-1);
@@ -58,13 +90,12 @@ export function aggregateTimeframes(observations: MarketObservation[]) {
     const closeChange = change(rows, "close"); const niftyChange = change(rows, "niftyClose"); const sectorChange = change(rows, "sectorClose");
     const volumes = rows.map((row) => safeNumber(row.volume)).filter((value): value is number => value !== undefined && value >= 0);
     const recentVolume = mean(volumes.slice(-Math.min(5, volumes.length))); const baselineVolume = mean(volumes.slice(0, Math.max(0, volumes.length - Math.min(5, volumes.length))));
-    const closes = rows.map((row) => row.close); const dailyReturns = returns(rows); const ma20 = closes.length >= 20 ? mean(closes.slice(-20)) : null; const ma50 = closes.length >= 50 ? mean(closes.slice(-50)) : null;
-    const macd = closes.length >= 26 ? ema(closes.slice(-12), 12) - ema(closes.slice(-26), 26) : null;
+    const closes = rows.map((row) => row.close); const dailyReturns = returns(rows); const indicators = calculateTechnicalIndicators(rows);
     return { timeframe, available: rows.length >= 2, observations: rows.length, startDate: rows[0]?.asOf || null, endDate: latest?.asOf || null,
       price: { close: latest?.close ?? null, changePct: closeChange, volatilityAnnualizedPct: dailyReturns.length > 1 ? std(dailyReturns) * Math.sqrt(252) * 100 : null, maxDrawdownPct: rows.length ? drawdown(rows) : null },
       volume: { average: volumes.length ? mean(volumes) : null, recentAverage: volumes.length ? recentVolume : null, abnormal: baselineVolume > 0 ? recentVolume / baselineVolume >= 1.8 : null },
       relativeStrength: { nifty50Pct: niftyChange === null || closeChange === null ? null : closeChange - niftyChange, sectorPct: sectorChange === null || closeChange === null ? null : closeChange - sectorChange },
-      technical: { ma20, ma50, rsi14: rsi(rows), macd, support: closes.length ? Math.min(...closes.slice(-20)) : null, resistance: closes.length ? Math.max(...closes.slice(-20)) : null, volumeConfirmed: baselineVolume > 0 ? recentVolume >= baselineVolume : null },
+      technical: { ...indicators, ma20: indicators.sma20, ma50: indicators.sma50, support: closes.length ? Math.min(...closes.slice(-20)) : null, resistance: closes.length ? Math.max(...closes.slice(-20)) : null, volumeConfirmed: baselineVolume > 0 ? recentVolume >= baselineVolume : null },
       interpretation: rows.length < 2 ? "Insufficient sourced observations for this timeframe." : `${closeChange! >= 0 ? "Price rose" : "Price fell"} ${Math.abs(closeChange!).toFixed(1)}%; ${niftyChange === null ? "benchmark comparison is unavailable" : `relative to Nifty it ${closeChange! - niftyChange >= 0 ? "outperformed" : "underperformed"} by ${Math.abs(closeChange! - niftyChange).toFixed(1)} percentage points`}.` };
   });
 }

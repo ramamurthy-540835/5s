@@ -22,6 +22,21 @@ test("multi-timeframe aggregation calculates price, relative strength and volume
   assert.ok(oneMonth.relativeStrength.nifty50Pct > 0);
 });
 
+test("technical indicator engine returns calculated values only when sufficient OHLCV exists", () => {
+  const ohlcv = observations.map((row) => ({ ...row, high: row.close + 2, low: row.close - 2 }));
+  const indicators = intelligence.calculateTechnicalIndicators(ohlcv);
+  assert.equal(indicators.observations, 70);
+  assert.ok(indicators.sma20 > 0);
+  assert.ok(indicators.ema26 > 0);
+  assert.ok(indicators.bollinger.upper > indicators.bollinger.lower);
+  assert.ok(indicators.atr14 > 0);
+  assert.ok(indicators.stochastic14 >= 0 && indicators.stochastic14 <= 100);
+  assert.notEqual(indicators.obv, null);
+  const insufficient = intelligence.calculateTechnicalIndicators(ohlcv.slice(0, 10));
+  assert.equal(insufficient.sma20, null);
+  assert.equal(insufficient.atr14, null);
+});
+
 test("illustrative scenarios suppress uncalibrated probabilities while the probability helper remains deterministic", () => {
   const scenarios = intelligence.generateScenarios(observations);
   const threeMonths = scenarios.find((item) => item.horizon === "3M");
