@@ -6,4 +6,5 @@ export const env = {
   plansTable: process.env.BQ_PLANS_TABLE || "prism_plans",
   routingTable: process.env.BQ_ROUTING_TABLE || "prism_model_routing",
   propertyAuctionDocumentsBucket: process.env.PROPERTY_AUCTIONS_DOCUMENT_BUCKET || `${process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || "aidirac-503309"}-prism-auctions-documents`,
+  industrial5sDocumentsBucket: process.env.PRISM_5S_DOCUMENTS_BUCKET || "",
 };

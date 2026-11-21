@@ -6,12 +6,13 @@ import { env } from "@backend/lib/env";
 import { queryBigQuery } from "@backend/lib/bigquery";
 import { appKinds, parseAppRecord, type AppName, type AppKind } from "@backend/lib/app-records";
 import { appOrgId } from "@backend/lib/app-tenancy";
-import { buildStockIntelligence, rankIndiaStocks, type FundamentalSnapshot, type MarketObservation, type RankingMode, type ResearchItem } from "@backend/lib/stock-intelligence";
+import { buildStockIntelligence, rankIndiaStocks, type FinancialStatementObservation, type FundamentalSnapshot, type MarketObservation, type RankingMode, type ResearchItem } from "@backend/lib/stock-intelligence";
 import { marketDataProviderStatus } from "@backend/lib/market-data-provider";
 import { INDIA_REFERENCE_CATALOGUE_NOTICE, indiaReferenceCatalogue } from "@backend/lib/india-reference-catalog";
-import { normalizeChartSeries } from "@backend/lib/stock-market-analytics";
+import { aggregateChartInterval, aggregateSectorHeatmap, buildChartTechnicalSeries, buildFinancialWorkspace, buildMarketOverview, normalizeBenchmarkComparison, normalizeChartSeries, screenInstruments, selectChartRange, sortScreenerRows, type CandleInterval, type ChartRange, type MarketIndexObservation, type ScreenerFilters, type ScreenerSort } from "@backend/lib/stock-market-analytics";
 
 type Row = { id: string; owner_id: string; kind: AppKind; status: string; title: string; payload_json: string; created_at: unknown; updated_at: unknown };
+type WorkspaceSymbol = { exchange: string; symbol: string; instrumentId: string; companyName: string | null; aliases: string[]; isin: string | null; tradingStatus: string };
 type AuctionOverviewListing = { id: string; title: string; reservePrice: number; closesOn: string; listingFee: number; bidCount: number; highestBid: number };
 const table = `\`${env.projectId}.${env.dataset}.app_records\``;
 const auditTable = `\`${env.projectId}.${env.dataset}.auction_audit_logs\``;
@@ -59,14 +60,14 @@ export async function GET(req: Request, { params }: { params: { app: string } })
     return NextResponse.json({ openListings, simulatedBidCount: bids.length }, { headers: { "Cache-Control": "no-store" } });
   }
   const stockView = new URL(req.url).searchParams.get("view");
-  if (app === "stock-exchange" && ["intelligence", "top5", "search"].includes(stockView || "")) {
+  if (app === "stock-exchange" && ["intelligence", "chart", "top5", "search", "market-overview", "screener", "fundamentals", "financial-statements", "financial-trends", "shareholding", "dividends"].includes(stockView || "")) {
     const providerStatus = marketDataProviderStatus();
     const rows = await queryBigQuery<Row>(`SELECT id,owner_id,kind,status,title,payload_json,created_at,updated_at FROM ${table}
       WHERE org_id=@orgId AND owner_id=@userId AND app='stock-exchange'
       AND kind IN UNNEST(@kinds) ORDER BY created_at ASC LIMIT 10000`,
-      { orgId, userId: user.id, kinds: ["instrument", "market-observation", "fundamental-snapshot", "research-item"] });
+      { orgId, userId: user.id, kinds: ["instrument", "market-observation", "fundamental-snapshot", "financial-statement", "research-item"] });
     const parsed = rows.flatMap((row) => { try { return [{ kind: row.kind, payload: JSON.parse(row.payload_json || "{}") as Record<string, unknown> }]; } catch { return []; } });
-    const workspaceSymbols = [...new Map(parsed.filter((row) => typeof row.payload.symbol === "string" && typeof row.payload.exchange === "string")
+    const workspaceSymbolCandidates: Array<[string, WorkspaceSymbol]> = parsed.filter((row) => typeof row.payload.symbol === "string" && typeof row.payload.exchange === "string")
       .map((row) => {
         const exchange = String(row.payload.exchange).toUpperCase(); const symbol = String(row.payload.symbol).toUpperCase();
         return [`${exchange}:${symbol}`, { exchange, symbol, instrumentId: `${exchange}:${symbol}`,
@@ -74,7 +75,16 @@ export async function GET(req: Request, { params }: { params: { app: string } })
           aliases: Array.isArray(row.payload.aliases) ? row.payload.aliases.filter((item): item is string => typeof item === "string").slice(0, 20) : [],
           isin: typeof row.payload.isin === "string" ? row.payload.isin : null,
           tradingStatus: typeof row.payload.tradingStatus === "string" ? row.payload.tradingStatus : "unknown" }];
-      })).values()];
+      });
+    const workspaceSymbolMap = new Map<string, WorkspaceSymbol>();
+    for (const [key, candidate] of workspaceSymbolCandidates) {
+      const prior = workspaceSymbolMap.get(key);
+      // Observation and fundamental records deliberately omit catalogue fields.
+      // They must never replace the canonical instrument record just because they
+      // were written later than it.
+      if (!prior || (!prior.companyName && candidate.companyName)) workspaceSymbolMap.set(key, candidate);
+    }
+    const workspaceSymbols = [...workspaceSymbolMap.values()];
     // Workspace records win over curated reference records because they carry
     // the user's own provenance and can have actual sourced observations.
     const symbols = [...new Map([...indiaReferenceCatalogue, ...workspaceSymbols]
@@ -96,10 +106,79 @@ export async function GET(req: Request, { params }: { params: { app: string } })
       return NextResponse.json({ instruments: matches, nextCursor: offset + limit < ranked.length ? String(offset + limit) : null, minimumQueryLength: 3,
         catalogueNotice: INDIA_REFERENCE_CATALOGUE_NOTICE }, { headers: { "Cache-Control": "no-store" } });
     }
-    const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || workspaceSymbols[0];
+    const requestedIdentity = requested?.match(/^(NSE|BSE):([A-Z0-9.\-_]{1,20})$/);
+    // A permitted statement/observation can establish an instrument identity before
+    // an instrument-master record arrives; it must still be scoped to this tenant.
+    const sourcedRequested = requestedIdentity && parsed.some((row) => row.payload.exchange === requestedIdentity[1] && row.payload.symbol === requestedIdentity[2]) ? { exchange: requestedIdentity[1], symbol: requestedIdentity[2], instrumentId: requested, companyName: null, aliases: [], isin: null, tradingStatus: "unknown" } : undefined;
+    const selected = symbols.find((item) => `${item.exchange}:${item.symbol}` === requested) || workspaceSymbols[0] || sourcedRequested;
     const observations = parsed.filter((row) => row.kind === "market-observation").map((row) => row.payload as unknown as MarketObservation);
     const fundamentals = parsed.filter((row) => row.kind === "fundamental-snapshot").map((row) => row.payload as unknown as FundamentalSnapshot);
+    const financialStatements = parsed.filter((row) => row.kind === "financial-statement").map((row) => row.payload as unknown as FinancialStatementObservation);
     const research = parsed.filter((row) => row.kind === "research-item").map((row) => row.payload as unknown as ResearchItem);
+    const instruments = symbols.filter((symbol): symbol is typeof symbol & { exchange: "NSE" | "BSE"; companyName: string } => (symbol.exchange === "NSE" || symbol.exchange === "BSE") && Boolean(symbol.companyName)).map((symbol) => {
+      const matching = parsed.find((row) => row.kind === "instrument" && row.payload.symbol === symbol.symbol && row.payload.exchange === symbol.exchange)?.payload || {};
+      return { instrumentId: symbol.instrumentId, symbol: symbol.symbol, exchange: symbol.exchange, companyName: symbol.companyName, sector: typeof matching.sector === "string" ? matching.sector : undefined, industry: typeof matching.industry === "string" ? matching.industry : undefined, marketCap: typeof matching.marketCap === "number" ? matching.marketCap : undefined, observations: observations.filter((row) => row.symbol === symbol.symbol && row.exchange === symbol.exchange), fundamentals: fundamentals.filter((row) => row.symbol === symbol.symbol && row.exchange === symbol.exchange), financialStatements: financialStatements.filter((row) => row.symbol === symbol.symbol && row.exchange === symbol.exchange), evidenceCoveragePct: buildStockIntelligence({ ...symbol, observations, fundamentals, research }).explainability.evidenceCoveragePct };
+    });
+    if (stockView === "chart") {
+      if (!selected) return error("Choose a valid NSE or BSE instrument", 404);
+      const range = (new URL(req.url).searchParams.get("range") || "1Y") as ChartRange; const interval = (new URL(req.url).searchParams.get("interval") || "1d") as CandleInterval;
+      const validRanges: ChartRange[] = ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y", "MAX"]; const validIntervals: CandleInterval[] = ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"];
+      if (!validRanges.includes(range)) return error("Unsupported chart range"); if (!validIntervals.includes(interval)) return error("Unsupported candle interval");
+      const selectedObservations = observations.filter((row) => row.symbol === selected.symbol && row.exchange === selected.exchange); const raw = selectChartRange(normalizeChartSeries(selectedObservations), range); const aggregated = aggregateChartInterval(raw, interval);
+      const benchmark = (key: "niftyClose" | "sectorClose") => normalizeChartSeries(selectedObservations.flatMap((row) => typeof row[key] === "number" && row[key]! > 0 ? [{ ...row, close: row[key]! }] : []));
+      const benchmarkKind = new URL(req.url).searchParams.get("benchmark") || "none"; const benchmarkSeries = benchmarkKind === "nifty50" ? benchmark("niftyClose") : benchmarkKind === "sector" ? benchmark("sectorClose") : [];
+      return NextResponse.json({ instrument: { instrumentId: selected.instrumentId, symbol: selected.symbol, exchange: selected.exchange, companyName: selected.companyName }, range, interval, chart: { points: aggregated.points, available: aggregated.available, reason: aggregated.reason }, intervalAvailable: aggregated.available, intervalReason: aggregated.reason, technical: buildChartTechnicalSeries(aggregated.points), benchmark: benchmarkKind === "none" ? { available: false, reason: "No benchmark selected.", points: [] } : normalizeBenchmarkComparison(aggregated.points, selectChartRange(benchmarkSeries, range)), adjustmentBasis: "raw", corporateActions: [], sourceUrls: [...new Set(selectedObservations.map((row) => row.sourceUrl))], requestedHistory: range, availableObservations: raw.length, freshestAsOf: raw.at(-1)?.time || null, providerStatus,
+        capabilities: { intraday: providerStatus.capabilities?.includes("intraday") || false, adjustment: false, corporateActions: providerStatus.capabilities?.includes("corporate_actions") || false } }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (["fundamentals", "financial-statements", "financial-trends", "shareholding", "dividends"].includes(stockView || "")) {
+      if (!selected) return error("Choose a valid NSE or BSE instrument", 404);
+      const scope = new URL(req.url).searchParams.get("scope") || "consolidated"; const periodType = new URL(req.url).searchParams.get("periodType") || "annual";
+      if (!["consolidated", "standalone"].includes(scope) || !["annual", "quarterly", "ttm"].includes(periodType)) return error("Unsupported financial reporting basis or period");
+      const rowsForInstrument = financialStatements.filter((row) => row.symbol === selected.symbol && row.exchange === selected.exchange);
+      const workspace = buildFinancialWorkspace(rowsForInstrument, { scope: scope as FinancialStatementObservation["scope"], periodType: periodType as FinancialStatementObservation["periodType"] });
+      const subset = stockView === "shareholding" ? { ...workspace, statements: workspace.statements.filter((row) => row.statement === "shareholding") } : stockView === "dividends" ? { ...workspace, statements: workspace.statements.filter((row) => row.statement === "dividend") } : stockView === "financial-trends" ? { ...workspace, statements: [] } : workspace;
+      return NextResponse.json({ instrument: { instrumentId: selected.instrumentId, symbol: selected.symbol, exchange: selected.exchange, companyName: selected.companyName }, ...subset, providerStatus, dataClassification: providerStatus.classification, coverage: { authorizedStatementCount: rowsForInstrument.length, compatibleStatementCount: workspace.statements.length, scope, periodType } }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (stockView === "market-overview") {
+      const exchange = (new URL(req.url).searchParams.get("exchange") || "").toUpperCase();
+      if (exchange && !["NSE", "BSE", "BOTH"].includes(exchange)) return error("exchange must be NSE, BSE, or Both");
+      // These macro fields can only become index cards when they were supplied
+      // by a source-attributed observation. The incomplete identifier catalogue
+      // is never used to infer an index value.
+      const indexSeries = (index: "NIFTY 50" | "INDIA VIX", field: "niftyClose" | "indiaVix"): MarketIndexObservation[] => {
+        const byDay = new Map<string, MarketIndexObservation>();
+        for (const observation of observations) {
+          const value = observation[field];
+          if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || byDay.has(observation.asOf)) continue;
+          byDay.set(observation.asOf, { index, asOf: observation.asOf, value, sourceUrl: observation.sourceUrl, classification: "EOD", freshness: "unknown" });
+        }
+        return [...byDay.values()].sort((a, b) => Date.parse(a.asOf) - Date.parse(b.asOf));
+      };
+      const indices = [...indexSeries("NIFTY 50", "niftyClose"), ...indexSeries("INDIA VIX", "indiaVix")];
+      const overview = buildMarketOverview(indices, instruments, { exchange: exchange === "BOTH" ? undefined : exchange as "NSE" | "BSE" | undefined });
+      return NextResponse.json({ ...overview, sectors: aggregateSectorHeatmap(instruments, { exchange: exchange === "BOTH" ? undefined : exchange as "NSE" | "BSE" | undefined }), providerStatus,
+        coverage: { instruments: overview.universeSize, indices: indices.length, scope: exchange === "BOTH" || !exchange ? "workspace" : `${exchange} workspace`, catalogueIsNotMarketEvidence: true } }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (stockView === "screener") {
+      const value = (key: string) => new URL(req.url).searchParams.get(key) || undefined;
+      const invalidNumbers: string[] = [];
+      const number = (key: string) => { const supplied = value(key); if (supplied === undefined) return undefined; const parsedNumber = Number(supplied); if (Number.isFinite(parsedNumber)) return parsedNumber; invalidNumbers.push(key); return undefined; };
+      const exchangeValue = value("exchange")?.toUpperCase();
+      if (exchangeValue && !["NSE", "BSE", "BOTH"].includes(exchangeValue)) return error("exchange must be NSE, BSE, or Both");
+      const filters: ScreenerFilters = { exchange: exchangeValue === "BOTH" ? undefined : exchangeValue as "NSE" | "BSE" | undefined, sector: value("sector"), industry: value("industry"), search: value("q"), minMarketCap: number("minMarketCap"), maxMarketCap: number("maxMarketCap"), minPe: number("minPe"), maxPe: number("maxPe"), minPb: number("minPb"), maxPb: number("maxPb"), minRoe: number("minRoe"), minRoa: number("minRoa"), minRoce: number("minRoce"), minRoic: number("minRoic"), maxDebtToEquity: number("maxDebtToEquity"), minCurrentRatio: number("minCurrentRatio"), minQuickRatio: number("minQuickRatio"), minDividendYield: number("minDividendYield"), minFreeCashFlowYield: number("minFreeCashFlowYield"), minRevenueGrowthPct: number("minRevenueGrowthPct"), minProfitGrowthPct: number("minProfitGrowthPct"), minEpsGrowthPct: number("minEpsGrowthPct"), minEvidenceCoveragePct: number("minEvidenceCoveragePct"), minVolume: number("minVolume"), minMomentumPct: number("minMomentumPct"), maxVolatilityPct: number("maxVolatilityPct") };
+      if (invalidNumbers.length) return error(`Numeric screener filters are invalid: ${invalidNumbers.join(", ")}`);
+      const ranges: Array<[number | undefined, number | undefined, string]> = [[filters.minMarketCap, filters.maxMarketCap, "market capitalization"], [filters.minPe, filters.maxPe, "P/E"], [filters.minPb, filters.maxPb, "P/B"]];
+      if (ranges.some(([minimum, maximum]) => minimum !== undefined && maximum !== undefined && minimum > maximum)) return error("Screener minimum values cannot exceed their maximum values");
+      const requestedSort = value("sort") || "company";
+      const validSorts: ScreenerSort[] = ["company", "marketCap", "pe", "roe", "roa", "roce", "roic", "debtToEquity", "currentRatio", "quickRatio", "dividendYield", "freeCashFlowYield", "revenueGrowthPct", "profitGrowthPct", "epsGrowthPct", "volume", "momentumPct", "volatilityPct", "evidenceCoveragePct", "lastObservationAt"];
+      if (!validSorts.includes(requestedSort as ScreenerSort)) return error("Unsupported screener sort");
+      const direction = value("direction") || "asc";
+      if (direction !== "asc" && direction !== "desc") return error("Screener direction must be asc or desc");
+      const screened = screenInstruments(instruments, filters); const offset = Math.max(0, Number(value("cursor")) || 0); const limit = Math.max(1, Math.min(100, Number(value("limit")) || 25));
+      const results = sortScreenerRows(screened.results, requestedSort as ScreenerSort, direction);
+      return NextResponse.json({ ...screened, results: results.slice(offset, offset + limit), nextCursor: offset + limit < screened.total ? String(offset + limit) : null, filters, sort: requestedSort, direction, limit, providerStatus,
+        coverage: { authorizedInstruments: instruments.length, eligibleResults: screened.total, catalogueIsNotMarketEvidence: true } }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (stockView === "top5") {
       const candidateMode = new URL(req.url).searchParams.get("mode") || "balanced";
       const exchange = (new URL(req.url).searchParams.get("exchange") || "").toUpperCase();

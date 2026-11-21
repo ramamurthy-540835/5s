@@ -36,7 +36,7 @@ new Function("exports", "require", ts.transpileModule(routeSource, { compilerOpt
   if (name === "@backend/lib/stock-intelligence") return intelligence;
   if (name === "@backend/lib/stock-market-analytics") return analytics;
   if (name === "@backend/lib/market-data-provider") return { marketDataProviderStatus: () => ({ configured: false, provider: null, classification: "unavailable", reason: "No approved licensed market-data provider is configured." }) };
-  if (name === "@backend/lib/india-reference-catalog") return { indiaReferenceCatalogue: [], INDIA_REFERENCE_CATALOGUE_NOTICE: "Reference catalogue unavailable in this isolated route test." };
+  if (name === "@backend/lib/india-reference-catalog") return { indiaReferenceCatalogue: [{ instrumentId: "NSE:TEST", symbol: "TEST", exchange: "NSE", companyName: "Test Corp", aliases: [], isin: null, tradingStatus: "active" }], INDIA_REFERENCE_CATALOGUE_NOTICE: "Reference catalogue unavailable in this isolated route test." };
   if (name === "@backend/lib/app-tenancy") return {
     appOrgId: (app, session) => app === "property-auctions" ? "property-auctions" : session.orgId,
   };
@@ -55,6 +55,31 @@ test("Stock Intelligence route resolves the normalized chart-series contract", (
     { symbol: "TATACOMM", exchange: "NSE", asOf: "invalid", close: 0, sourceUrl: "https://source.example/invalid", sourceClass: "verified_filing" },
   ]);
   assert.deepEqual(chartSeries, [{ time: "2026-01-02", open: 100, high: 104, low: 98, close: 100, volume: 1000 }]);
+});
+
+test("authenticated screener route validates inputs, scopes source records, and returns non-evidence coverage metadata", () => {
+  assert.match(routeSource, /owner_id=@userId AND app='stock-exchange'/);
+  assert.match(routeSource, /Numeric screener filters are invalid/);
+  assert.match(routeSource, /Screener minimum values cannot exceed their maximum values/);
+  assert.match(routeSource, /sortScreenerRows\(screened\.results/);
+  assert.match(routeSource, /catalogueIsNotMarketEvidence: true/);
+  const result = analytics.screenInstruments([{ instrumentId: "NSE:TEST", symbol: "TEST", exchange: "NSE", companyName: "Test Corp", observations: [], fundamentals: [], evidenceCoveragePct: 0 }], { exchange: "NSE" });
+  assert.equal(result.total, 1);
+});
+
+test("authenticated financial statements return only the selected tenant instrument and compatible basis", async () => {
+  user = { id: "member", email: "member@example.test", orgId: "org", role: "member" };
+  selected = [[
+    { id: "instrument", owner_id: "member", kind: "instrument", status: "active", title: "NSE:TEST", payload_json: JSON.stringify({ symbol: "TEST", exchange: "NSE", companyName: "Test Corp" }), created_at: "", updated_at: "" },
+    { id: "income", owner_id: "member", kind: "financial-statement", status: "active", title: "income", payload_json: JSON.stringify({ symbol: "TEST", exchange: "NSE", statement: "income", scope: "consolidated", periodType: "annual", periodEnd: "2026-03-31", publishedAt: "2026-05-01", currency: "INR", unit: "crores", actual: true, values: { revenue: 1000, netProfit: 100 }, sourceUrl: "https://example.test/annual", sourceClass: "company_statement" }), created_at: "", updated_at: "" },
+    { id: "other-tenant-like-symbol", owner_id: "member", kind: "financial-statement", status: "active", title: "other", payload_json: JSON.stringify({ symbol: "OTHER", exchange: "NSE", statement: "income", scope: "consolidated", periodType: "annual", periodEnd: "2026-03-31", publishedAt: "2026-05-01", currency: "INR", unit: "crores", actual: true, values: { revenue: 9999 }, sourceUrl: "https://example.test/other", sourceClass: "company_statement" }), created_at: "", updated_at: "" },
+  ]];
+  const response = await route.GET(getRequest("https://app.test/api/prism/apps/stock-exchange?view=financial-statements&instrument=NSE:TEST&scope=consolidated&periodType=annual"), { params: { app: "stock-exchange" } });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.coverage.authorizedStatementCount, 1);
+  assert.equal(response.body.statements.length, 1);
+  assert.equal(response.body.metrics.find((metric) => metric.key === "revenue").value, 1000);
+  assert.equal(reads.at(-1).params.userId, "member");
 });
 
 test("anonymous users cannot create application records", async () => {

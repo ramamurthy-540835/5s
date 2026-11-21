@@ -1,10 +1,10 @@
 export type AppName = "textile-exports" | "property-auctions" | "stock-exchange";
-export type AppKind = "shipment" | "route-option" | "listing" | "bidder" | "bid" | "instrument" | "paper-order" | "market-observation" | "fundamental-snapshot" | "research-item";
+export type AppKind = "shipment" | "route-option" | "listing" | "bidder" | "bid" | "instrument" | "paper-order" | "market-observation" | "fundamental-snapshot" | "financial-statement" | "research-item";
 
 export const appKinds: Record<AppName, AppKind[]> = {
   "textile-exports": ["shipment", "route-option"],
   "property-auctions": ["listing", "bidder", "bid"],
-  "stock-exchange": ["instrument", "paper-order", "market-observation", "fundamental-snapshot", "research-item"],
+  "stock-exchange": ["instrument", "paper-order", "market-observation", "fundamental-snapshot", "financial-statement", "research-item"],
 };
 
 const field = (data: Record<string, unknown>, key: string, max = 300) => String(data[key] ?? "").trim().slice(0, max);
@@ -109,6 +109,16 @@ export function parseAppRecord(app: AppName, kind: AppKind, input: unknown) {
     if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange)) throw new Error("Enter a valid symbol and exchange");
     const asOf = date(data.asOf); const fiscalPeriod = field(data, "fiscalPeriod", 30); if (!fiscalPeriod) throw new Error("Fiscal period is required");
     return { title: `${exchange}:${symbol} fundamentals ${fiscalPeriod}`, payload: { symbol, exchange, asOf, fiscalPeriod, revenue: optionalNumber(data.revenue, "revenue"), netProfit: optionalNumber(data.netProfit, "net profit"), ebitdaMargin: optionalNumber(data.ebitdaMargin, "EBITDA margin"), eps: optionalNumber(data.eps, "EPS"), roe: optionalNumber(data.roe, "ROE"), roce: optionalNumber(data.roce, "ROCE"), debtToEquity: optionalNumber(data.debtToEquity, "debt to equity"), freeCashFlow: optionalNumber(data.freeCashFlow, "free cash flow"), pe: optionalNumber(data.pe, "P/E", 0), pb: optionalNumber(data.pb, "P/B", 0), evEbitda: optionalNumber(data.evEbitda, "EV/EBITDA", 0), dividendYield: optionalNumber(data.dividendYield, "dividend yield", 0), sourceUrl: sourceUrl(data.sourceUrl), sourceClass: sourceClass(data.sourceClass) } };
+  }
+  if (kind === "financial-statement") {
+    const symbol = field(data, "symbol", 20).toUpperCase(); const exchange = field(data, "exchange", 20).toUpperCase(); const statement = field(data, "statement", 30); const scope = field(data, "scope", 20); const periodType = field(data, "periodType", 20); const unit = field(data, "unit", 20);
+    if (!/^[A-Z0-9.\-_]{1,20}$/.test(symbol) || !/^[A-Z0-9.\-_]{1,20}$/.test(exchange)) throw new Error("Enter a valid symbol and exchange");
+      if (!["income", "balance_sheet", "cash_flow", "shareholding", "dividend"].includes(statement) || !["standalone", "consolidated"].includes(scope) || !["quarterly", "annual", "ttm"].includes(periodType) || !["ones", "thousands", "lakhs", "millions", "crores", "billions", "trillions", "percent", "shares", "per_share"].includes(unit)) throw new Error("Enter valid financial statement metadata");
+    const periodEnd = date(data.periodEnd); const publishedAt = date(data.publishedAt); const rawValues = data.values;
+    if (!rawValues || typeof rawValues !== "object" || Array.isArray(rawValues)) throw new Error("Financial statement values are required");
+    const values = Object.fromEntries(Object.entries(rawValues as Record<string, unknown>).slice(0, 100).map(([key, value]) => [field({ key }, "key", 80), optionalNumber(value, `financial value ${key}`) ?? null]).filter(([key]) => Boolean(key)));
+      const periodStart = data.periodStart ? date(data.periodStart) : undefined; const filingDate = data.filingDate ? date(data.filingDate) : undefined;
+      return { title: `${exchange}:${symbol} ${statement} ${periodEnd}`, payload: { symbol, exchange, statement, scope, periodType, periodStart, periodEnd, publishedAt, filingDate, currency: field(data, "currency", 3).toUpperCase() || "INR", unit, actual: data.actual !== false && data.actual !== "false", cumulative: data.cumulative === true || data.cumulative === "true", restated: data.restated === true || data.restated === "true", values, sourceUrl: sourceUrl(data.sourceUrl), sourceClass: sourceClass(data.sourceClass) } };
   }
   if (kind === "research-item") {
     const symbol = field(data, "symbol", 20).toUpperCase(); const exchange = field(data, "exchange", 20).toUpperCase(); const title = field(data, "title", 300);

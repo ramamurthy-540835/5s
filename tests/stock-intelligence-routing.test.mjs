@@ -27,8 +27,10 @@ test("Stock Intelligence does not render manual records or paper trading", () =>
   assert.match(panel, /rankPanel\("NSE", nse\)/);
   assert.match(panel, /rankPanel\("BSE", bse\)/);
   assert.match(panel, /PublicMarketWidget/);
-  assert.match(panel, /Technical Analysis/);
-  assert.match(panel, /Future Scenarios/);
+  assert.match(panel, /Charts & Technicals/);
+  assert.match(panel, /Financials/);
+  assert.match(panel, /AI Intelligence/);
+  assert.match(panel, /grid-cols-2 gap-2 border-b/);
   assert.match(panel, /Market data status/);
 });
 
@@ -48,12 +50,51 @@ test("demo public market widget is display-only", () => {
 });
 
 test("Stock Intelligence API remains authenticated, tenant-scoped and non-cacheable", () => {
-  assert.match(intelligenceRoute, /\["intelligence", "top5", "search"\]\.includes\(stockView/);
+  assert.match(intelligenceRoute, /"intelligence", "chart", "top5", "search", "market-overview", "screener"/);
   assert.match(intelligenceRoute, /stockView === "top5"/);
   assert.match(intelligenceRoute, /rankIndiaStocks/);
   assert.match(intelligenceRoute, /owner_id=@userId/);
   assert.match(intelligenceRoute, /Cache-Control": "no-store"/);
   assert.match(intelligenceRoute, /buildStockIntelligence/);
+  assert.match(intelligenceRoute, /const overview = buildMarketOverview\(indices, instruments, \{ exchange:/);
+  assert.match(intelligenceRoute, /aggregateSectorHeatmap\(instruments, \{ exchange:/);
+  assert.match(intelligenceRoute, /screenInstruments\(instruments, filters\)/);
+  assert.match(intelligenceRoute, /sortScreenerRows/);
+  assert.match(intelligenceRoute, /Numeric screener filters are invalid/);
+  assert.match(intelligenceRoute, /stockView === "chart"/);
+  assert.match(intelligenceRoute, /aggregateChartInterval/);
+  assert.match(intelligenceRoute, /buildChartTechnicalSeries/);
+  assert.match(intelligenceRoute, /Unsupported candle interval/);
+});
+
+test("Stock Screener has a dedicated authenticated workspace linked from Market Overview", () => {
+  const workspace = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligenceWorkspace.tsx", import.meta.url), "utf8");
+  const screener = fs.readFileSync(new URL("../frontend/components/apps/StockScreenerWorkspace.tsx", import.meta.url), "utf8");
+  const page = fs.readFileSync(new URL("../frontend/app/admin/prism/stock-exchange/screener/page.tsx", import.meta.url), "utf8");
+  assert.match(workspace, /Open Stock Screener/);
+  assert.match(screener, /view=screener/);
+  assert.match(screener, /AbortController/);
+  assert.match(screener, /Apply filters/);
+  assert.match(screener, /No eligible sourced results/);
+  assert.match(screener, /catalogue entries are not treated as financial evidence/i);
+  assert.match(page, /StockScreenerWorkspace/);
+  assert.match(page, /Suspense/);
+  assert.match(page, /ScreenerLoadingFallback/);
+  assert.match(page, /Loading Stock Screener/);
+});
+
+test("Market Overview dashboard binds authenticated cards, breadth, movers and sector drill-down", () => {
+  const dashboard = fs.readFileSync(new URL("../frontend/components/apps/MarketOverviewDashboard.tsx", import.meta.url), "utf8");
+  const page = fs.readFileSync(new URL("../frontend/app/admin/prism/stock-exchange/market-overview/page.tsx", import.meta.url), "utf8");
+  const workspace = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligenceWorkspace.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /view=market-overview/);
+  assert.match(dashboard, /AbortController/);
+  assert.match(dashboard, /Market breadth/);
+  assert.match(dashboard, /Top gainers/);
+  assert.match(dashboard, /Sector heatmap/);
+  assert.match(dashboard, /stock-exchange\/screener\?sector=/);
+  assert.match(page, /MarketOverviewDashboard/);
+  assert.match(workspace, /Market Dashboard/);
 });
 
 test("search-first V3 API enforces its minimum query and keeps exchange rankings separate", () => {
@@ -75,6 +116,25 @@ test("provider diagnostics are administrator-only and do not serialize credentia
 
 test("native price chart is source-contract-only and supplies interactive market controls", () => {
   const nativeChart = fs.readFileSync(new URL("../frontend/components/apps/NativePriceChart.tsx", import.meta.url), "utf8");
-  for (const expected of ["candles", "line", "area", "ResizeObserver", "Full screen", "onMouseMove", "volume"]) assert.match(nativeChart, new RegExp(expected));
-  assert.doesNotMatch(nativeChart, /tradingview|widgetdata|fetch\s*\(/i);
+  for (const expected of ["candles", "ohlc", "line", "area", "ResizeObserver", "Full screen", "onMouseMove", "onWheel", "volume", "RSI \\(14\\)", "MACD \\(12, 26, 9\\)", "bollinger", "AbortController", "benchmark"]) assert.match(nativeChart, new RegExp(expected));
+  assert.match(nativeChart, /view: "chart"/);
+  assert.match(nativeChart, /api\/prism\/apps\/stock-exchange/);
+  assert.doesNotMatch(nativeChart, /tradingview|widgetdata/i);
+});
+
+test("financial workspace binds authenticated statement records, reporting controls and source-linked trends", () => {
+  const financial = fs.readFileSync(new URL("../frontend/components/apps/FinancialResearchWorkspace.tsx", import.meta.url), "utf8");
+  const panel = fs.readFileSync(new URL("../frontend/components/apps/StockIntelligencePanel.tsx", import.meta.url), "utf8");
+  assert.match(financial, /view: "financial-statements"/);
+  assert.match(financial, /AbortController/);
+  assert.match(financial, /Consolidated/);
+  assert.match(financial, /Standalone/);
+  assert.match(financial, /Annual/);
+  assert.match(financial, /Quarterly/);
+  assert.match(financial, /Profitability|Fundamentals and financial statements/);
+  assert.match(financial, /TrendChart/);
+  assert.match(panel, /FinancialResearchWorkspace/);
+  assert.match(intelligenceRoute, /"financial-statements"/);
+  assert.match(intelligenceRoute, /buildFinancialWorkspace/);
+  assert.match(intelligenceRoute, /financial-statement/);
 });

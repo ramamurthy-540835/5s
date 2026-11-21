@@ -56,3 +56,24 @@ test("Stock Intelligence observations require a valid source and preserve proven
   assert.equal(result.payload.sourceUrl, "https://example.test/filing");
   assert.equal(result.payload.sourceClass, "verified_filing");
 });
+
+test("financial statements preserve reporting basis, units, provenance and null values", () => {
+  const result = records.parseAppRecord("stock-exchange", "financial-statement", { symbol: "TEST", exchange: "NSE", statement: "income", scope: "consolidated", periodType: "annual", periodEnd: "2026-03-31", publishedAt: "2026-05-01", currency: "INR", unit: "crores", actual: true, values: { revenue: 1000, netProfit: null }, sourceUrl: "https://example.test/annual", sourceClass: "company_statement" });
+  assert.equal(result.payload.scope, "consolidated");
+  assert.equal(result.payload.unit, "crores");
+  assert.equal(result.payload.values.netProfit, null);
+  assert.throws(() => records.parseAppRecord("stock-exchange", "financial-statement", { ...result.payload, statement: "unknown" }));
+});
+
+test("dividend disclosures remain source-attributed financial records rather than inferred zero payouts", () => {
+  const dividend = records.parseAppRecord("stock-exchange", "financial-statement", { symbol: "TEST", exchange: "NSE", statement: "dividend", scope: "consolidated", periodType: "annual", periodEnd: "2026-03-31", publishedAt: "2026-05-01", currency: "INR", unit: "ones", actual: true, values: { dividendPerShare: 2, specialDividendPerShare: null }, sourceUrl: "https://example.test/dividend", sourceClass: "verified_filing" });
+  assert.equal(dividend.payload.statement, "dividend");
+  assert.equal(dividend.payload.values.specialDividendPerShare, null);
+});
+
+test("financial disclosure contract preserves explicit unit and cumulative-period metadata", () => {
+  const result = records.parseAppRecord("stock-exchange", "financial-statement", { symbol: "TEST", exchange: "NSE", statement: "income", scope: "consolidated", periodType: "quarterly", periodStart: "2025-04-01", periodEnd: "2025-06-30", publishedAt: "2025-08-01", filingDate: "2025-08-01", currency: "INR", unit: "millions", cumulative: false, actual: true, values: { revenue: 10 }, sourceUrl: "https://example.test/quarter", sourceClass: "verified_filing" });
+  assert.equal(result.payload.unit, "millions");
+  assert.equal(result.payload.periodStart, "2025-04-01");
+  assert.equal(result.payload.cumulative, false);
+});

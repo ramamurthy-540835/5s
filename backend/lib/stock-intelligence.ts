@@ -7,7 +7,12 @@ export type SourceClass = "verified_filing" | "company_statement" | "analyst_opi
 export type MarketObservation = { symbol: string; exchange: string; asOf: string; close: number; high?: number; low?: number; volume?: number; niftyClose?: number; sectorClose?: number; indiaVix?: number; usdInr?: number; brent?: number; repoRate?: number; inflation?: number; fiiNetFlow?: number; sourceUrl: string; sourceClass: SourceClass };
 export type FundamentalSnapshot = { symbol: string; exchange: string; asOf: string; fiscalPeriod: string; revenue?: number; netProfit?: number; ebitdaMargin?: number; eps?: number; roe?: number; roce?: number; debtToEquity?: number; freeCashFlow?: number; pe?: number; pb?: number; evEbitda?: number; dividendYield?: number; sourceUrl: string; sourceClass: SourceClass };
 export type ResearchItem = { symbol: string; exchange: string; publishedAt: string; title: string; summary: string; sourceUrl: string; sourceClass: SourceClass; materiality: "low" | "medium" | "high"; conflicted?: boolean };
-export type FinancialStatementObservation = { symbol: string; exchange: string; statement: "income" | "balance_sheet" | "cash_flow" | "shareholding"; scope: "standalone" | "consolidated"; periodType: "quarterly" | "annual" | "ttm"; periodEnd: string; publishedAt: string; currency: string; unit: "ones" | "lakhs" | "crores"; actual: boolean; restated?: boolean; values: Record<string, number | null>; sourceUrl: string; sourceClass: SourceClass };
+/**
+ * Provider-neutral, source-attributed financial disclosure. `dividend` is a
+ * corporate-action disclosure rather than an inferred absence of dividends.
+ */
+export type FinancialUnit = "ones" | "thousands" | "lakhs" | "millions" | "crores" | "billions" | "trillions" | "percent" | "shares" | "per_share";
+export type FinancialStatementObservation = { symbol: string; exchange: string; statement: "income" | "balance_sheet" | "cash_flow" | "shareholding" | "dividend"; scope: "standalone" | "consolidated"; periodType: "quarterly" | "annual" | "ttm"; periodStart?: string; periodEnd: string; publishedAt: string; filingDate?: string; currency: string; unit: FinancialUnit; actual: boolean; cumulative?: boolean; restated?: boolean; values: Record<string, number | null>; sourceUrl: string; sourceClass: SourceClass };
 export type Factor = { id: string; rawValue: number | null; normalizedScore: number | null; direction: "positive" | "negative" | "neutral" | "unavailable"; weight: number; confidence: "high" | "medium" | "low"; freshness: "fresh" | "stale" | "missing"; availability: "available" | "unavailable"; source: string[]; explanation: string };
 type Timeframe = "3Y" | "1Y" | "6M" | "3M" | "1M" | "1W" | "1D";
 type Horizon = "1W" | "1M" | "3M" | "6M" | "12M";
