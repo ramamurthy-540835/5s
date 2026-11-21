@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { label: "Textile Exports",  href: "/admin/prism/textile-exports", icon: Ship },
   { label: "Property Auctions", href: "/admin/prism/property-auctions", icon: Gavel },
   { label: "Stock Intelligence", href: "/admin/prism/stock-intelligence", icon: CandlestickChart },
-  { label: "5S Industrial AI", href: "/admin/prism/industrial-5s", icon: ClipboardCheck },
+  { label: "Plant Data Converter", href: "/admin/prism/industrial-5s", icon: ClipboardCheck },
   { label: "Partner GST",      href: "/admin/prism/partners/gst", icon: ReceiptIndianRupee },
   { label: "Prompt Library",   href: "/admin/prism/prompts",     icon: BookOpen },
   { label: "Plans",            href: "/admin/prism/plans",       icon: FileText },
