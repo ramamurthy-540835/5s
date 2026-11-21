@@ -48,6 +48,15 @@ test("company templates reject unsafe, duplicate, and unmapped required cells", 
   assert.ok(codes.includes("TEMPLATE_REQUIRED_MAPPING"));
 });
 
+test("company template mapping permits the same cell address only on distinct worksheets", () => {
+  const template = industrial.defaultCncTemplate();
+  const issues = industrial.validateCompanyTemplate({ ...template, fieldMappings: [
+    { canonicalField: "machine_asset_number", label: "Machine", target: "B2", worksheet: "Inspection Report" },
+    { canonicalField: "machine_name", label: "Name", target: "B2", worksheet: "Archived reference" },
+  ] });
+  assert.equal(issues.some((item) => item.code === "TEMPLATE_DUPLICATE_TARGET"), false);
+});
+
 test("background dispatch is fail-closed until all Cloud Tasks worker configuration exists", () => {
   const prior = { queue: process.env.PRISM_5S_TASK_QUEUE, url: process.env.PRISM_5S_WORKER_URL, token: process.env.PRISM_5S_WORKER_TOKEN, serviceAccount: process.env.PRISM_5S_TASK_SERVICE_ACCOUNT };
   delete process.env.PRISM_5S_TASK_QUEUE; delete process.env.PRISM_5S_WORKER_URL; delete process.env.PRISM_5S_WORKER_TOKEN; delete process.env.PRISM_5S_TASK_SERVICE_ACCOUNT;
@@ -72,6 +81,7 @@ test("XLSX template inspection exposes sheet structure and editable canonical ma
   const inspection = templateImport.inspectXlsxTemplate(workbook);
   assert.deepEqual(inspection.sheets.map((sheet) => sheet.name), ["Inspection Report", "Machinery Images"]);
   assert.ok(inspection.suggestedMappings.some((mapping) => mapping.canonicalField === "report_reference_number" && /^[A-Z]+\d+$/.test(mapping.target)));
+  assert.equal(inspection.suggestedMappings.find((mapping) => mapping.canonicalField === "report_reference_number")?.worksheet, "Inspection Report");
   assert.deepEqual(inspection.warnings, []);
 });
 

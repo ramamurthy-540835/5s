@@ -60,6 +60,8 @@ def image_sheet(workbook, request):
         sheet = workbook.create_sheet("Machinery Images")
     else:
         sheet = workbook.worksheets[1]
+        if sheet.title != "Machinery Images":
+            raise ValueError("The optional second template worksheet must be named Machinery Images; unrelated worksheet content cannot be overwritten")
         sheet.title = "Machinery Images"
         sheet.delete_rows(1, sheet.max_row)
         sheet._images = []
@@ -100,9 +102,13 @@ def main():
     if not workbook.worksheets:
         raise ValueError("Imported workbook has no worksheets")
     report = workbook.worksheets[0]
+    original_report_title = report.title
     report.title = "Inspection Report"
     extracted = {field.get("fieldKey"): value(field) for field in request.get("fields", [])}
     for mapping in request.get("fieldMappings", []):
+        worksheet = mapping.get("worksheet")
+        if worksheet and worksheet != original_report_title and worksheet != "Inspection Report":
+            raise ValueError(f"Mapping for {mapping.get('canonicalField')} targets unsupported worksheet {worksheet}")
         if mapping.get("repeatable") == "process_rows":
             process_rows(report, mapping, request.get("processRows", []))
         elif mapping.get("canonicalField") in extracted:
