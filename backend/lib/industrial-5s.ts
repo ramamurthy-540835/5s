@@ -20,7 +20,7 @@ export type ValidationIssue = { code: string; severity: "blocking" | "warning"; 
 export type TemplateFieldMapping = { canonicalField: string; label: string; target: string; required?: boolean; repeatable?: "process_rows" | "maintenance_events"; format?: "text" | "date" | "time" | "number" | "duration" };
 export type CompanyTemplateDefinitionV1 = { schemaVersion: "1.0"; templateId: string; companyId?: string; templateName: string; templateDescription: string; inspectionType: string; templateVersion: string; status: TemplateStatus; source: "platform_generic" | "company_import" | "company_designed"; requiredFields: string[]; fieldMappings: TemplateFieldMapping[]; imageLayout: { widthPx: number; rowHeight: number; requireChronology: boolean }; createdAt: string; publishedAt?: string };
 
-export type TimestampCandidate = { source: Exclude<TimestampSource, "unresolved">; rawValue: string; localDateTime?: string; timezone?: string; valid: boolean; warning?: string };
+export type TimestampCandidate = { source: Exclude<TimestampSource, "unresolved">; rawValue: string; localDateTime?: string; timezone?: string; valid: boolean; warning?: string; provenance?: "exif_ifd" | "png_exif" | "webp_exif" | "heif_metadata" | "gemini_watermark" | "manual" | "filename"; metadata?: { cameraModel?: string; orientation?: number; offset?: string } };
 export type MachineryImageAnalysisV1 = { schemaVersion: "1.0"; imageId: string; uploadSequence: number; originalFilename: string; objectPath: string; contentType: string; watermarkDetected: boolean; watermarkRawText?: string; timestampCandidates: TimestampCandidate[]; resolvedCaptureDatetime?: string; timezone?: string; timestampSource: TimestampSource; timestampStatus: "verified" | "needs_review" | "unresolved" | "conflict"; imageCategory: string; imageDescription?: string; warnings: string[]; agentVersion: string };
 export type VerifiedInspectionSnapshotV1 = { schemaVersion: "1.0"; inspectionId: string; snapshotVersion: number; template: Pick<CompanyTemplateDefinitionV1, "templateId" | "templateVersion" | "templateName">; extraction: IndustrialInspectionExtractionV1; images: MachineryImageAnalysisV1[]; verifiedBy: string; verifiedAt: string };
 export type ExcelGenerationRequestV1 = { schemaVersion: "1.0"; inspectionId: string; tenantId: string; snapshot: VerifiedInspectionSnapshotV1; outputFilename: string };
@@ -41,21 +41,30 @@ export function validateInspectionTransition(current: InspectionStatus, next: In
   return allowed[current].includes(next);
 }
 
+export function validateCompanyTemplate(template: CompanyTemplateDefinitionV1): ValidationIssue[] {
+  const issues: ValidationIssue[] = []; if (template.schemaVersion !== "1.0") issues.push({ code: "TEMPLATE_SCHEMA", severity: "blocking", message: "Unsupported template schema version." });
+  if (!template.templateName.trim() || !template.inspectionType.trim()) issues.push({ code: "TEMPLATE_IDENTITY", severity: "blocking", message: "Template name and inspection type are required." });
+  const targets = new Set<string>(); for (const mapping of template.fieldMappings) { if (!/^[A-Z]{1,3}[1-9]\d*$/.test(mapping.target) && !mapping.repeatable) issues.push({ code: "TEMPLATE_TARGET", severity: "blocking", message: `Invalid Excel target for ${mapping.canonicalField}.` }); if (mapping.target && targets.has(mapping.target)) issues.push({ code: "TEMPLATE_DUPLICATE_TARGET", severity: "blocking", message: `Duplicate Excel target ${mapping.target}.` }); targets.add(mapping.target); if (/^[=+\-@]/.test(mapping.label)) issues.push({ code: "TEMPLATE_FORMULA_INJECTION", severity: "blocking", message: "Template labels cannot start with an Excel formula character." }); }
+  for (const required of template.requiredFields) if (!template.fieldMappings.some((mapping) => mapping.canonicalField === required)) issues.push({ code: "TEMPLATE_REQUIRED_MAPPING", severity: "blocking", fieldKey: required, message: `Required field ${required} has no mapping.` }); return issues;
+}
+
 export function safeFilename(value: string, fallback = "inspection-report.xlsx") { const cleaned = value.normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[_ .]+|[_ .]+$/g, "").slice(0, 180); return cleaned || fallback; }
 export function sha256(value: Buffer | Uint8Array) { return createHash("sha256").update(value).digest("hex"); }
 export function parseLocalTimestamp(raw: string, timezone?: string): TimestampCandidate {
-  const normalized = raw.trim().replace(/\./g, "-").replace(/\s+/g, " ");
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/) || normalized.match(/^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const normalized = raw.trim().replace(/\./g, "-").replace(/\//g, "-").replace(/\s+/g, " "); const withMeridiem = normalized.match(/^(.*?\d{1,2}:\d{2}(?::\d{2})?)\s*(AM|PM)$/i); const base = withMeridiem ? withMeridiem[1] : normalized;
+  const match = base.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/) || base.match(/^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!match) return { source: "visible_watermark", rawValue: raw, valid: false, timezone, warning: "Unrecognized local timestamp format" };
-  const y = match[1].length === 4 ? +match[1] : +match[3], m = match[1].length === 4 ? +match[2] : +match[2], d = match[1].length === 4 ? +match[3] : +match[1], h = +match[4], minute = +match[5], s = +(match[6] || 0);
+  const y = match[1].length === 4 ? +match[1] : +match[3], m = +match[2], d = match[1].length === 4 ? +match[3] : +match[1], marker = withMeridiem?.[2]?.toUpperCase(), hour = +match[4], h = marker ? (hour % 12) + (marker === "PM" ? 12 : 0) : hour, minute = +match[5], s = +(match[6] || 0);
   if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || minute > 59 || s > 59) return { source: "visible_watermark", rawValue: raw, valid: false, timezone, warning: "Invalid timestamp components" };
   return { source: "visible_watermark", rawValue: raw, localDateTime: `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(s).padStart(2, "0")}`, timezone, valid: true };
 }
 export function resolveImageTimestamp(candidates: TimestampCandidate[], uploadSequence: number): Pick<MachineryImageAnalysisV1, "resolvedCaptureDatetime" | "timezone" | "timestampSource" | "timestampStatus" | "warnings"> {
-  const usable = candidates.filter((item) => item.valid && item.localDateTime); const watermark = usable.find((item) => item.source === "visible_watermark"); const exif = usable.find((item) => item.source === "exif");
-  const conflict = !!watermark && !!exif && watermark.localDateTime !== exif.localDateTime;
-  const chosen = watermark || usable.find((item) => item.source === "user_confirmed") || exif || usable.find((item) => item.source === "filename");
-  return chosen ? { resolvedCaptureDatetime: chosen.localDateTime, timezone: chosen.timezone, timestampSource: chosen.source, timestampStatus: conflict ? "conflict" : chosen.source === "user_confirmed" ? "verified" : "needs_review", warnings: conflict ? ["Visible watermark and EXIF capture time disagree; verify before chronological export."] : [] } : { timestampSource: "unresolved", timestampStatus: "unresolved", warnings: ["No reliable capture timestamp was found. Upload time was not used."] };
+  const usable = candidates.filter((item) => item.valid && item.localDateTime); const manual = usable.find((item) => item.source === "user_confirmed"); const watermark = usable.find((item) => item.source === "visible_watermark"); const exif = usable.find((item) => item.source === "exif"); const trusted = usable.find((item) => item.source === "filename");
+  const conflicting = usable.filter((item) => item !== manual && item.localDateTime !== (manual || watermark || exif || trusted)?.localDateTime);
+  const chosen = manual || watermark || exif || trusted;
+  if (!chosen) return { timestampSource: "unresolved", timestampStatus: "unresolved", warnings: ["No reliable capture timestamp was found. Upload time was not used."] };
+  if (manual) return { resolvedCaptureDatetime: manual.localDateTime, timezone: manual.timezone, timestampSource: "user_confirmed", timestampStatus: "verified", warnings: conflicting.length ? ["Manual verification overrides conflicting timestamp evidence; all original candidates remain retained."] : [] };
+  return { resolvedCaptureDatetime: chosen.localDateTime, timezone: chosen.timezone, timestampSource: chosen.source, timestampStatus: conflicting.length ? "conflict" : "needs_review", warnings: conflicting.length ? ["Timestamp candidates disagree; verify before chronological export."] : [] };
 }
 export function sortImageTimeline(images: MachineryImageAnalysisV1[]) { return [...images].sort((a, b) => { const at = a.resolvedCaptureDatetime ? Date.parse(a.resolvedCaptureDatetime) : Number.POSITIVE_INFINITY; const bt = b.resolvedCaptureDatetime ? Date.parse(b.resolvedCaptureDatetime) : Number.POSITIVE_INFINITY; return at - bt || a.uploadSequence - b.uploadSequence; }); }
 /** Agent 1 boundary. OCR/model execution is deliberately denied unless both approved integrations are configured. */
